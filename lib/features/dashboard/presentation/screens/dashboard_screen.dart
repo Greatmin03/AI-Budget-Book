@@ -370,8 +370,8 @@ class _UpcomingRecurring extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Container(
-          decoration: AppTheme.cardDecoration(context),
+        AppTheme.cardSurface(
+          context,
           child: Column(
             children: List<Widget>.generate(rules.length, (int index) {
               final RecurringRule rule = rules[index];

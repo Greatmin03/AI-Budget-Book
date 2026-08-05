@@ -199,8 +199,8 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
             const SizedBox(height: 24),
             const _SectionTitle('세부 항목'),
             const SizedBox(height: 12),
-            Container(
-              decoration: AppTheme.cardDecoration(context),
+            AppTheme.cardSurface(
+              context,
               child: Column(
                 children: List<Widget>.generate(
                   detail.subcategories.length,
@@ -243,8 +243,8 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
           const SizedBox(height: 24),
           _SectionTitle('브랜드', subtitle: '${detail.brands.length}개'),
           const SizedBox(height: 12),
-          Container(
-            decoration: AppTheme.cardDecoration(context),
+          AppTheme.cardSurface(
+            context,
             child: Column(
               children: List<Widget>.generate(detail.brands.length, (int i) {
                 final BrandStat brand = detail.brands[i];

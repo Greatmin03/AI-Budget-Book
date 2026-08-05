@@ -143,8 +143,8 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                               subtitle: '${_transactions.length}건',
                             ),
                             const SizedBox(height: 12),
-                            Container(
-                              decoration: AppTheme.cardDecoration(context),
+                            AppTheme.cardSurface(
+                              context,
                               child: Column(
                                 children: List<Widget>.generate(
                                   _transactions.length,

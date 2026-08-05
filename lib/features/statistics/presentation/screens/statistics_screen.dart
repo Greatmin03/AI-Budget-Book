@@ -319,9 +319,8 @@ class _BrandSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        Container(
-          width: double.infinity,
-          decoration: AppTheme.cardDecoration(context),
+        AppTheme.cardSurface(
+          context,
           child: brands.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(16),

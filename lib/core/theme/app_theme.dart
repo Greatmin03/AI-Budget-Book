@@ -38,13 +38,47 @@ class AppTheme {
     );
   }
 
+  static const double cardRadius = 16;
+
   /// 카드 스타일을 한 곳에서 관리한다.
+  ///
+  /// **안에 `ListTile` 이나 `InkWell` 을 넣을 거면 [cardSurface] 를 쓴다.**
+  /// 이 데코레이션은 배경색을 칠하므로, 그 위에서 터치한 잉크 스플래시가
+  /// 배경 뒤에 그려져 보이지 않는다(Flutter 가 어서션으로 경고한다).
   static BoxDecoration cardDecoration(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     return BoxDecoration(
       color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(cardRadius),
       border: Border.all(color: scheme.outlineVariant, width: 1),
+    );
+  }
+
+  /// 탭할 수 있는 항목이 들어가는 카드.
+  ///
+  /// [cardDecoration] 과 겉모습은 같지만 `Material` 로 만든다.
+  ///
+  /// `ListTile` 은 배경과 잉크 스플래시를 **가장 가까운 Material 조상**에
+  /// 그린다. 배경색이 있는 `DecoratedBox` 안에 넣으면 그 잉크가 카드 배경
+  /// 뒤에 깔려 터치 피드백이 보이지 않는다. Material 로 만들면 잉크가
+  /// 카드 위에 그려진다.
+  static Widget cardSurface(
+    BuildContext context, {
+    required Widget child,
+    EdgeInsetsGeometry? padding,
+  }) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      // Material 은 borderRadius 와 shape 를 동시에 받지 않는다.
+      // 테두리까지 필요하므로 shape 로 둘을 함께 표현한다.
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(cardRadius),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      // 잉크가 카드 모서리 밖으로 번지지 않게 한다.
+      clipBehavior: Clip.antiAlias,
+      child: padding == null ? child : Padding(padding: padding, child: child),
     );
   }
 }

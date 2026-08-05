@@ -322,8 +322,8 @@ class _GroupCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        Container(
-          decoration: AppTheme.cardDecoration(context),
+        AppTheme.cardSurface(
+          context,
           child: Column(
             children: List<Widget>.generate(group.accounts.length, (int i) {
               final Account account = group.accounts[i];

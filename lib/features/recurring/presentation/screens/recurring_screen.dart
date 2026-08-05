@@ -183,8 +183,8 @@ class _RecurringScreenState extends State<RecurringScreen> {
                       ),
                     )
                   else
-                    Container(
-                      decoration: AppTheme.cardDecoration(context),
+                    AppTheme.cardSurface(
+                      context,
                       child: Column(
                         children: List<Widget>.generate(_rules.length, (int i) {
                           final RecurringRule rule = _rules[i];
