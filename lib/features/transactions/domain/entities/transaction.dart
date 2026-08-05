@@ -227,9 +227,6 @@ class Transaction {
   /// AI 분석을 마친 시각.
   final DateTime? aiProcessedAt;
 
-  /// AI 일괄 분석을 기다리는 거래인지.
-  bool get isAiPending => aiStatus.isPending;
-
   /// 프로젝트(폴더) 연결. 카테고리와 별개다.
   final int? projectId;
 
@@ -245,11 +242,6 @@ class Transaction {
   /// 계좌 잔액에 반영해야 하는 거래인지.
   bool get affectsAccountBalance => accountId != null;
 
-  /// 잔액에 더할 부호 있는 금액.
-  ///
-  /// 수입은 +, 지출은 -. 취소 거래는 [amount] 가 이미 음수이므로
-  /// 지출에서 부호를 뒤집으면 자동으로 환불(+)이 된다.
-  int get balanceDelta => isIncome ? amount : -amount;
   bool get isIncome => direction.isIncome;
   bool get hasProject => projectId != null;
 

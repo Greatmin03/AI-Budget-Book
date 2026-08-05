@@ -158,6 +158,22 @@ class TransactionLocalDataSource {
     return value is int ? value : 0;
   }
 
+  /// 처리 중에 멈춘 거래를 다시 대기로 되돌린다.
+  ///
+  /// `processing` 은 같은 브랜드를 두 번 집어오지 않기 위한 표시인데,
+  /// **일괄 분석 도중 앱이 죽으면 그 표시가 그대로 남는다.**
+  /// `aiPendingOnly` 는 `processing` 을 포함하지 않으므로, 되돌리지 않으면
+  /// 그 거래는 다시는 분석되지 않는다.
+  ///
+  /// 그래서 일괄 분석을 시작할 때마다 먼저 정리한다.
+  Future<int> resetStuckAiProcessing() {
+    return _db.update(
+      _t,
+      <String, Object?>{DbSchema.tAiStatus: 'pending'},
+      where: "${DbSchema.tAiStatus} = 'processing'",
+    );
+  }
+
   /// 브랜드 하나의 대기 거래 상태를 한 번에 바꾼다.
   Future<int> updateAiStatusForBrand({
     required String brand,

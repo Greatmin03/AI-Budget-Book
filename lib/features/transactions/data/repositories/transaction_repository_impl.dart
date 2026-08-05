@@ -135,6 +135,16 @@ class TransactionRepositoryImpl implements TransactionRepository {
   Future<int> countAiPending() => _local.countAiPending();
 
   @override
+  Future<int> resetStuckAiProcessing() async {
+    final int reset = await _local.resetStuckAiProcessing();
+    if (reset > 0) {
+      AppLogger.i('처리 중에 멈춘 거래 $reset건을 대기로 되돌렸습니다.');
+      _notify();
+    }
+    return reset;
+  }
+
+  @override
   Future<int> markAiStatusForBrand({
     required String brand,
     required AiStatus status,

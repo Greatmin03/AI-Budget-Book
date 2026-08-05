@@ -122,7 +122,7 @@ class TransactionTile extends StatelessWidget {
           // 부호와 색으로 수입/지출을 구분한다. 색만으로 구분하지 않도록
           // 부호를 항상 붙인다(`-4,500원` / `+300,000원`).
           Text(
-            _signedText(transaction.amount),
+            Formatters.flowAmount(transaction.amount, isIncome: transaction.isIncome),
             style: TextStyle(
               fontWeight: FontWeight.w700,
               fontSize: 15,
@@ -138,7 +138,7 @@ class TransactionTile extends StatelessWidget {
           // 실제 부담 금액.
           if (transaction.hasSettlements)
             Text(
-              _signedText(transaction.netAmount),
+              Formatters.flowAmount(transaction.netAmount, isIncome: transaction.isIncome),
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 15,
@@ -153,18 +153,6 @@ class TransactionTile extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  /// 부호를 붙인 금액.
-  ///
-  /// 수입은 `+`, 지출은 `-`. 지출도 양수로 저장되므로 부호를 직접 붙인다.
-  /// 취소 거래(음수)는 실제로 돌려받은 것이므로 지출인데도 `+` 가 된다.
-  String _signedText(int amount) {
-    if (amount == 0) return Formatters.won(0);
-    final int signed = transaction.isIncome ? amount : -amount;
-    return signed > 0
-        ? '+${Formatters.won(signed)}'
-        : '-${Formatters.won(-signed)}';
   }
 
   /// 수입은 파랑, 지출은 빨강. 자산 이동은 사라진 돈이 아니므로 중립색.

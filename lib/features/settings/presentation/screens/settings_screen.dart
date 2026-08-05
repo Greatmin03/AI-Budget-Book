@@ -94,11 +94,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return ListTile(
                   leading: const Icon(Icons.sync_outlined),
                   title: const Text('처리 현황'),
+                  // AI 호출 횟수는 여기 표시하지 않는다.
+                  // 수집 시점에는 AI 를 부르지 않으므로 항상 0이 되어
+                  // "AI 가 동작하지 않는다" 는 오해를 준다.
+                  // 실제 호출 횟수는 일괄 분석 결과 스낵바에 나온다.
                   subtitle: Text(
                     '저장 ${status.savedCount} · 중복 ${status.duplicateCount} · '
-                    '무시 ${status.ignoredCount} · 실패 ${status.failedCount}\n'
-                    'AI 호출 ${status.llmCallCount}회'
-                    '${status.queued > 0 ? ' · 대기 ${status.queued}건' : ''}'
+                    '무시 ${status.ignoredCount} · 실패 ${status.failedCount}'
+                    '${status.queued > 0 ? '\n대기 ${status.queued}건' : ''}'
                     '${status.lastMessage == null ? '' : '\n최근: ${status.lastMessage}'}',
                   ),
                   isThreeLine: true,
@@ -223,7 +226,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : '처음 보는 브랜드는 "분류 필요" 목록에 쌓입니다.',
               ),
               value: _controller.settings.llmEnabled,
-              onChanged: _controller.setLlmEnabled,
+              onChanged: (bool value) async {
+                await _controller.setLlmEnabled(value);
+                // 이전 헬스체크 결과는 더 이상 유효하지 않다.
+                await Injector.instance.aiQueue.invalidateConnection();
+              },
             ),
             ListTile(
               leading: const Icon(Icons.link_outlined),
@@ -237,7 +244,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   helperText: '에뮬레이터: http://10.0.2.2:11434\n'
                       '실제 기기: http://<PC의 LAN IP>:11434',
                 );
-                if (value != null) await _controller.setOllamaBaseUrl(value);
+                if (value != null) {
+                  await _controller.setOllamaBaseUrl(value);
+                  await Injector.instance.aiQueue.invalidateConnection();
+                }
               },
             ),
             ListTile(
@@ -251,7 +261,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   initialValue: _controller.settings.ollamaModel,
                   helperText: '예: gemma3:4b, qwen3:4b, llama3.2:3b',
                 );
-                if (value != null) await _controller.setOllamaModel(value);
+                if (value != null) {
+                  await _controller.setOllamaModel(value);
+                  await Injector.instance.aiQueue.invalidateConnection();
+                }
               },
             ),
             ListTile(

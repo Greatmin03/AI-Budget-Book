@@ -228,8 +228,7 @@ class RecordPaymentNotification {
       );
     }
 
-    // 수집 시점에는 AI 를 부르지 않는다(일괄 처리로 옮겼다).
-    return IngestSaved(saved, usedLlm: false);
+    return IngestSaved(saved);
   }
 
   /// 이 결제가 기존 정기결제 규칙에 해당하는지 확인한다.

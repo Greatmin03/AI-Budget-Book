@@ -9,12 +9,9 @@ sealed class IngestResult {
 
 /// 가계부에 새로 기록되었다.
 class IngestSaved extends IngestResult {
-  const IngestSaved(this.transaction, {required this.usedLlm});
+  const IngestSaved(this.transaction);
 
   final Transaction transaction;
-
-  /// 이 건을 처리하며 LLM 을 호출했는지(비용/성능 관찰용).
-  final bool usedLlm;
 
   @override
   String get summary => '저장: ${transaction.displayName} '

@@ -57,14 +57,38 @@ class AiQueueController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 대기 건수만 다시 읽는다(가볍다).
+  /// 대기 건수를 다시 읽는다.
+  ///
+  /// 0 이었다가 생겼으면 연결도 한 번 확인한다.
+  ///
+  /// 확인하지 않으면 이런 일이 생긴다: 앱을 켤 때 대기가 0이어서 헬스체크를
+  /// 건너뛰고, 이후 처음 보는 가맹점에서 결제해 대기가 1이 되어도
+  /// `isConnected` 가 false 인 채라 **배너가 끝까지 뜨지 않는다.**
+  /// 앱을 다시 켜야 보이는 상태가 된다.
   Future<void> refresh() async {
     try {
+      final int before = _pendingCount;
       _pendingCount = await _process.pendingCount();
       _notify();
+
+      // 대기가 새로 생겼고 아직 연결을 확인한 적이 없으면 지금 확인한다.
+      // 이미 확인했다면 다시 묻지 않는다(결제마다 헬스체크를 날리면 낭비다).
+      if (before == 0 && _pendingCount > 0 && _health == null) {
+        await checkConnection();
+      }
     } on Object catch (e, stack) {
       AppLogger.e('AI 대기 건수 조회 실패', e, stack);
     }
+  }
+
+  /// 사용자가 설정을 바꿨을 때 상태를 다시 판단한다.
+  ///
+  /// Ollama 주소·모델·AI 사용 여부를 고친 직후에는 이전 헬스체크 결과가
+  /// 더 이상 유효하지 않다.
+  Future<void> invalidateConnection() async {
+    _health = null;
+    _notify();
+    if (_pendingCount > 0) await checkConnection();
   }
 
   /// 앱 시작 시 호출한다.

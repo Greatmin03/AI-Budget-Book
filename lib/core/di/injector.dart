@@ -6,7 +6,6 @@ import '../../features/classification/data/repositories/brand_metadata_repositor
 import '../../features/classification/data/repositories/classifier_repository_impl.dart';
 import '../../features/classification/domain/repositories/brand_metadata_repository.dart';
 import '../../features/classification/domain/repositories/classifier_repository.dart';
-import '../../features/classification/domain/usecases/classify_merchant.dart';
 import '../../features/classification/domain/usecases/lookup_brand_industry.dart';
 import '../../features/classification/domain/usecases/process_ai_pending_queue.dart';
 import '../../features/classification/presentation/controllers/ai_queue_controller.dart';
@@ -111,7 +110,6 @@ class Injector {
   late final InsightRepository insights;
 
   // --------------------------------------------------------------- use cases
-  late final ClassifyMerchant classifyMerchant;
 
   /// 브랜드 업종 조회(브랜드당 최대 1회). 설정에서 상태 확인/키 테스트에도 쓴다.
   late final LookupBrandIndustry lookupBrandIndustry;
@@ -200,7 +198,6 @@ class Injector {
     );
 
     // -------------------------------------------------------------- usecases
-    classifyMerchant = ClassifyMerchant(classifier: classifier);
     lookupBrandIndustry = LookupBrandIndustry(
       metadata: brandMetadata,
       placeApi: placeApi,

@@ -68,6 +68,12 @@ abstract interface class TransactionRepository {
   /// 대기 건수. 배너에 "AI 분석 대기 N건" 으로 보여 준다.
   Future<int> countAiPending();
 
+  /// 처리 중에 멈춘 거래를 다시 대기로 되돌린다.
+  ///
+  /// 일괄 분석 도중 앱이 죽으면 `processing` 표시가 남아 그 거래가 영구히
+  /// 대기열에서 빠진다. 분석을 시작할 때마다 먼저 정리한다.
+  Future<int> resetStuckAiProcessing();
+
   /// 브랜드 하나의 대기 상태를 바꾼다(처리 중 표시 / 실패 표시).
   Future<int> markAiStatusForBrand({
     required String brand,

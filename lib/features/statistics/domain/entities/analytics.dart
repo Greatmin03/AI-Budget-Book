@@ -227,9 +227,6 @@ class DashboardSummary {
   /// 남아 있으므로 순증가를 줄이지 않는다.
   int get netChange => incomeTotal - total;
 
-  /// 통장 기준 순증가(자산 이동까지 빠져나간 것으로 본다).
-  int get netCashChange => incomeTotal - cashOutflow;
-
   bool get hasIncome => incomeTotal != 0;
 
   final int previousTotal;

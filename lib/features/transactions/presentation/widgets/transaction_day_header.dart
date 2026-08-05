@@ -55,7 +55,7 @@ class TransactionDayHeader extends StatelessWidget {
             children: <Widget>[
               if (_inflow != 0)
                 Text(
-                  '+${Formatters.won(_inflow)}',
+                  Formatters.flowAmount(_inflow, isIncome: true),
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -69,14 +69,7 @@ class TransactionDayHeader extends StatelessWidget {
                 ),
               if (_outflow != 0 || _inflow == 0)
                 Text(
-                  // 나간 돈은 `-` 를 붙인다. 다만 취소로 상쇄되어 0이 된 날은
-                  // `-0원` 이 아니라 `0원` 이라야 읽힌다. 취소가 결제보다 큰
-                  // 날은 실제로 돌려받은 것이므로 `+` 가 맞다.
-                  _outflow == 0
-                      ? Formatters.won(0)
-                      : _outflow > 0
-                          ? '-${Formatters.won(_outflow)}'
-                          : '+${Formatters.won(-_outflow)}',
+                  Formatters.flowAmount(_outflow, isIncome: false),
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,

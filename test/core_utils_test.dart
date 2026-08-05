@@ -4,6 +4,7 @@ import 'package:budget_book/core/utils/text_normalizer.dart';
 import 'package:budget_book/features/classification/domain/entities/merchant_classification.dart';
 import 'package:budget_book/features/classification/domain/services/rule_based_classifier.dart';
 import 'package:budget_book/features/transactions/domain/entities/transaction.dart';
+import 'package:budget_book/core/utils/formatters.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -244,6 +245,33 @@ void main() {
             paymentDatetime: at,
           ),
         ),
+      );
+    });
+  });
+  group('Formatters.flowAmount (부호 규칙 단일 구현)', () {
+    test('수입은 +', () {
+      expect(Formatters.flowAmount(300000, isIncome: true), '+300,000원');
+    });
+
+    test('지출은 - (양수로 저장되므로 부호를 직접 붙인다)', () {
+      expect(Formatters.flowAmount(15000, isIncome: false), '-15,000원');
+    });
+
+    test('지출인데 음수면 실제로 돌려받은 것이므로 +', () {
+      // 취소/환불 거래는 amount 가 음수로 저장된다.
+      expect(Formatters.flowAmount(-30000, isIncome: false), '+30,000원');
+    });
+
+    test('0은 부호를 붙이지 않는다', () {
+      // 취소로 상쇄되어 0이 된 날. `-0원` 은 읽히지 않는다.
+      expect(Formatters.flowAmount(0, isIncome: false), '0원');
+      expect(Formatters.flowAmount(0, isIncome: true), '0원');
+    });
+
+    test('수입과 지출은 같은 금액에서 반대 부호가 된다', () {
+      expect(
+        Formatters.flowAmount(1000, isIncome: true),
+        isNot(Formatters.flowAmount(1000, isIncome: false)),
       );
     });
   });

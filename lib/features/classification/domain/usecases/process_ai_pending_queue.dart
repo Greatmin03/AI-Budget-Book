@@ -119,6 +119,10 @@ class ProcessAiPendingQueue {
       return const AiBatchResult.skipped('AI 분류가 꺼져 있습니다.');
     }
 
+    // 지난 실행이 도중에 끊겼다면 `processing` 표시가 남아 있다.
+    // 되돌리지 않으면 그 거래는 다시는 대기열에 잡히지 않는다.
+    await _transactions.resetStuckAiProcessing();
+
     final int pending = await _transactions.countAiPending();
     if (pending == 0) {
       return const AiBatchResult.skipped('분석할 거래가 없습니다.');

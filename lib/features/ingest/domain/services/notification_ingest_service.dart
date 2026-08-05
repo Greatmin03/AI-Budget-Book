@@ -130,7 +130,6 @@ class IngestStatus {
     this.failedCount = 0,
     this.duplicateCount = 0,
     this.depositCount = 0,
-    this.llmCallCount = 0,
     this.lastMessage,
     this.lastUpdatedAt,
   });
@@ -146,7 +145,6 @@ class IngestStatus {
   final int depositCount;
 
   /// 이번 실행에서 LLM 을 호출한 횟수. "LLM 최소 호출" 원칙 확인용.
-  final int llmCallCount;
 
   final String? lastMessage;
   final DateTime? lastUpdatedAt;
@@ -159,7 +157,6 @@ class IngestStatus {
     int? failedCount,
     int? duplicateCount,
     int? depositCount,
-    int? llmCallCount,
     String? lastMessage,
   }) {
     return IngestStatus(
@@ -170,7 +167,6 @@ class IngestStatus {
       failedCount: failedCount ?? this.failedCount,
       duplicateCount: duplicateCount ?? this.duplicateCount,
       depositCount: depositCount ?? this.depositCount,
-      llmCallCount: llmCallCount ?? this.llmCallCount,
       lastMessage: lastMessage ?? this.lastMessage,
       lastUpdatedAt: DateTime.now(),
     );
@@ -178,9 +174,8 @@ class IngestStatus {
 
   IngestStatus applyResult(IngestResult result) {
     return switch (result) {
-      IngestSaved(:final bool usedLlm) => copyWith(
+      IngestSaved() => copyWith(
           savedCount: savedCount + 1,
-          llmCallCount: llmCallCount + (usedLlm ? 1 : 0),
           lastMessage: result.summary,
         ),
       IngestDuplicate() => copyWith(

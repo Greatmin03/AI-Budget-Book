@@ -353,4 +353,47 @@ void main() {
       expect(saved.last.category, '식비');
     });
   });
+  group('중단 복구', () {
+    test('처리 중에 멈춘 거래를 다시 대기로 되돌린다', () async {
+      // 일괄 분석 도중 앱이 죽으면 `processing` 표시가 남는다.
+      // aiPendingOnly 는 processing 을 포함하지 않으므로, 되돌리지 않으면
+      // 그 거래는 **다시는 분석되지 않는다.**
+      await enqueue(brand: '행복반점', status: AiStatus.processing);
+
+      expect(
+        await transactions.countAiPending(),
+        0,
+        reason: 'processing 은 대기로 잡히지 않는다(그래서 갇힌다)',
+      );
+
+      classifier.result = chineseFood;
+      final AiBatchResult result = await buildUseCase()();
+
+      expect(
+        result.transactionsUpdated,
+        1,
+        reason: '실행 시작 시 되돌려서 이번에 처리돼야 한다',
+      );
+      expect((await allTransactions()).single.aiStatus, AiStatus.completed);
+    });
+
+    test('되돌리기는 다른 상태를 건드리지 않는다', () async {
+      await enqueue(brand: 'A', status: AiStatus.processing, seq: 0);
+      await enqueue(brand: 'B', status: AiStatus.completed, seq: 1);
+      await enqueue(brand: 'C', status: AiStatus.none, seq: 2);
+      await enqueue(brand: 'D', status: AiStatus.failed, seq: 3);
+
+      final int reset = await transactions.resetStuckAiProcessing();
+
+      expect(reset, 1, reason: 'processing 한 건만 되돌린다');
+      expect(await transactions.countAiPending(), 1);
+
+      final Map<String, AiStatus> byBrand = <String, AiStatus>{
+        for (final Transaction t in await allTransactions()) t.brand: t.aiStatus,
+      };
+      expect(byBrand['B'], AiStatus.completed);
+      expect(byBrand['C'], AiStatus.none);
+      expect(byBrand['D'], AiStatus.failed, reason: 'failed 는 그대로 둔다');
+    });
+  });
 }
