@@ -1,0 +1,80 @@
+# ─────────────────────────────────────────────────────────────
+# Flutter / Dart
+# ─────────────────────────────────────────────────────────────
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+doc/api/
+
+# pubspec.lock 은 **커밋한다.**
+# 라이브러리라면 무시하는 것이 맞지만 이 프로젝트는 애플리케이션이다.
+# 잠금 파일이 없으면 clone 한 사람이 다른 의존성 버전을 받아 빌드가 깨질 수 있다.
+
+# ─────────────────────────────────────────────────────────────
+# Android
+# ─────────────────────────────────────────────────────────────
+# 로컬 SDK 경로가 들어 있다(사람마다 다르고 개인 폴더 구조가 노출된다).
+android/local.properties
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/.cxx/
+.gradle/
+
+# 서명 키. 절대 커밋하지 않는다.
+*.jks
+*.keystore
+key.properties
+
+# ─────────────────────────────────────────────────────────────
+# iOS / macOS (이 앱은 Android 전용이지만 flutter create 가 폴더를 만든다)
+# ─────────────────────────────────────────────────────────────
+ios/Flutter/ephemeral/
+ios/Pods/
+ios/.symlinks/
+macos/Flutter/ephemeral/
+macos/Pods/
+**/Flutter/App.framework/
+**/Flutter/Flutter.framework/
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+
+# ─────────────────────────────────────────────────────────────
+# Windows / Linux 데스크톱 생성물
+# ─────────────────────────────────────────────────────────────
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# ─────────────────────────────────────────────────────────────
+# 테스트 / 로그 / 임시 파일
+# ─────────────────────────────────────────────────────────────
+coverage/
+*.log
+*.tmp
+*.temp
+
+# 개인 거래 내역이 담길 수 있는 것들.
+# DB 는 기기 안에만 있어야 하고 저장소에 올라갈 이유가 없다.
+*.db
+*.sqlite
+*.sqlite3
+screenshots/local/
+
+# ─────────────────────────────────────────────────────────────
+# IDE
+# ─────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# ─────────────────────────────────────────────────────────────
+# OS
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

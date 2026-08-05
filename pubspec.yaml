@@ -1,0 +1,50 @@
+name: budget_book
+description: "결제 알림을 자동으로 읽어 가계부를 작성하는 개인용 Android 가계부 앱"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 한국어 Material 위젯(날짜 범위 선택기 등)에 필요하다.
+  flutter_localizations:
+    sdk: flutter
+
+  # 로컬 DB. Drift 대신 sqflite 를 사용한다 (build_runner 코드 생성 불필요).
+  sqflite: ^2.3.3
+  path: ^1.9.0
+
+  # Ollama HTTP 호출용
+  http: ^1.2.2
+
+  # 날짜 / 금액 포맷.
+  # flutter_localizations 가 intl 버전을 엄격하게 고정하므로,
+  # 버전 충돌을 피하기 위해 SDK 가 요구하는 버전을 그대로 따른다.
+  intl: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  flutter_launcher_icons: ^0.14.3
+  # 테스트에서 실제 SQLite 를 데스크톱에서 구동한다.
+  # 스키마와 집계 쿼리를 기기 없이 검증하기 위한 것이며, 앱에는 포함되지 않는다.
+  sqflite_common_ffi: ^2.3.3
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+
+  image_path: "assets/icon/app_icon.png"
+
+  adaptive_icon_background: "assets/icon/background.png"
+  adaptive_icon_foreground: "assets/icon/foreground.png"
