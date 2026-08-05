@@ -72,15 +72,20 @@ class OllamaRemoteDataSource {
     required Duration timeout,
   }) async {
     final Uri uri = _resolve(baseUrl, '/api/generate');
+    // 모델이 추론(thinking) 모델인지에 따라 요청이 달라진다.
+    // 사용자가 설정에서 어떤 모델이든 넣을 수 있으므로 여기서 적응해야 한다.
+    final bool thinking = isThinkingModel(model);
+
     final Map<String, Object?> body = <String, Object?>{
       'model': model,
-      'prompt': buildPrompt(merchantName),
+      'prompt': buildPrompt(merchantName, suppressThinking: thinking),
       'stream': false,
       // Ollama 의 강제 JSON 출력 모드.
       'format': 'json',
-      // Qwen3 는 추론(thinking) 모델이므로 사고 과정을 끈다.
-      // (구버전 Ollama 는 이 필드를 무시하므로 프롬프트의 `/no_think` 로도 이중 방어)
-      'think': false,
+      // **추론 모델에만** think 필드를 보낸다.
+      // 최신 Ollama 는 thinking 을 지원하지 않는 모델(gemma3 등)에 이 필드가
+      // 오면 "does not support thinking" 으로 요청 전체를 거절한다.
+      if (thinking) 'think': false,
       'options': <String, Object?>{
         'temperature': 0,
         'top_p': 0.9,
@@ -131,14 +136,37 @@ class OllamaRemoteDataSource {
   ///  - 허용 카테고리를 프롬프트에 모두 나열해 환각을 줄인다.
   ///  - few-shot 예시로 출력 형태를 고정한다.
   ///  - 브랜드/지점 분리를 명시적으로 요구한다.
-  static String buildPrompt(String merchantName) {
+  /// 모델 이름으로 추론(thinking) 모델인지 판단한다.
+  ///
+  /// 완벽할 수 없는 판단이지만, 틀려도 손해가 비대칭이다.
+  ///  - 추론 모델을 놓치면 `<think>` 블록이 섞여 오는데, 응답 정리 단계에서
+  ///    어차피 제거한다.
+  ///  - 반대로 일반 모델에 `think` 를 보내면 **요청 자체가 거절된다.**
+  /// 그래서 확실한 것만 추론 모델로 본다.
+  static bool isThinkingModel(String model) {
+    final String name = model.toLowerCase();
+    return name.startsWith('qwen3') ||
+        name.contains('deepseek-r1') ||
+        name.contains('-r1') ||
+        name.contains('thinking') ||
+        name.startsWith('o1') ||
+        name.startsWith('magistral');
+  }
+
+  static String buildPrompt(
+    String merchantName, {
+    bool suppressThinking = false,
+  }) {
     final StringBuffer taxonomy = StringBuffer();
     CategoryTaxonomy.tree.forEach((String category, List<String> subs) {
       taxonomy.writeln('- $category: ${subs.join(', ')}');
     });
 
-    return '''/no_think
-당신은 한국 카드 결제 내역의 가맹점명을 분류하는 시스템입니다.
+    // `/no_think` 는 Qwen3 계열이 알아듣는 지시다. 다른 모델에는 의미 없는
+    // 토큰이므로 붙이지 않는다.
+    final String prefix = suppressThinking ? '/no_think\n' : '';
+
+    return '''$prefix당신은 한국 카드 결제 내역의 가맹점명을 분류하는 시스템입니다.
 설명이나 인사말 없이 JSON 객체 하나만 출력하세요.
 
 [허용된 카테고리 / 서브카테고리]

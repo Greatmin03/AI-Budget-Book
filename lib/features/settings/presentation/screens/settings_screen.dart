@@ -249,7 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context: context,
                   title: '모델 이름',
                   initialValue: _controller.settings.ollamaModel,
-                  helperText: '예: qwen3:4b',
+                  helperText: '예: gemma3:4b, qwen3:4b, llama3.2:3b',
                 );
                 if (value != null) await _controller.setOllamaModel(value);
               },

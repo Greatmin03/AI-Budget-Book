@@ -101,7 +101,7 @@
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 로컬 DB | sqflite (SQLite) — 스키마 v9 |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
-| 로컬 LLM | Ollama (기본 `qwen3:4b`) — 선택 |
+| 로컬 LLM | Ollama (기본 `gemma3:4b`) — 선택 |
 | 외부 API | 카카오 로컬 API — 선택, **사용자 본인 키** |
 | 상태관리 | `ChangeNotifier` (외부 패키지 없음) |
 | 아키텍처 | Clean Architecture + feature-first |
@@ -181,12 +181,20 @@ AI 는 **필수가 아니다.** 꺼져 있어도 모든 기능이 동작하고,
 $env:OLLAMA_HOST="0.0.0.0:11434"; ollama serve
 
 # 모델 설치
-ollama pull qwen3:4b
+ollama pull gemma3:4b
 ```
 
 4B 급 모델을 쓰는 이유: 이 작업은 "가맹점 이름 → 업종 분류" 라는 좁은 분류 문제다.
 큰 모델이 필요 없고 CPU 로도 수 초 안에 답한다.
-`gemma3:4b`, `llama3.2:3b` 등 Ollama 에 설치된 어떤 모델이든 설정에서 바꿔 쓸 수 있다.
+
+**어떤 모델이든 설정에서 바꿔 쓸 수 있다.** 추론(thinking) 모델을 넣으면
+앱이 요청 형태를 자동으로 맞춘다 — 일반 모델에 `think` 필드를 보내면
+최신 Ollama 가 "does not support thinking" 으로 요청을 거절하기 때문이다.
+
+| 모델 | 요청 |
+|---|---|
+| `gemma3:4b`, `llama3.2:3b`, `mistral` | `think` 미전송 |
+| `qwen3:4b`, `deepseek-r1` | `think: false` + 프롬프트에 `/no_think` |
 
 ### 앱에서
 
@@ -196,7 +204,7 @@ ollama pull qwen3:4b
 | 실제 기기 (같은 Wi-Fi) | `http://<PC의 LAN IP>:11434` |
 
 1. 설정 → **Ollama 주소** 입력
-2. 설정 → **모델** 입력 (`qwen3:4b`)
+2. 설정 → **모델** 입력 (`gemma3:4b`)
 3. 설정 → **연결 테스트** — 서버와 모델 설치 여부를 함께 확인
 4. 설정 → **AI 자동 분류 사용** 켜기
 5. 대시보드에 `AI 분석 대기 N건 [지금 분석]` 배너가 나타난다

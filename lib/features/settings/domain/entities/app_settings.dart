@@ -17,7 +17,14 @@ class AppSettings {
   /// Android 에뮬레이터에서 호스트 PC 를 가리키는 주소.
   /// 실제 기기에서는 PC 의 LAN IP(예: `http://192.168.0.10:11434`)로 바꿔야 한다.
   static const String defaultOllamaBaseUrl = 'http://10.0.2.2:11434';
-  static const String defaultOllamaModel = 'qwen3:4b';
+  /// 기본 모델.
+  ///
+  /// 이 작업은 "가맹점 이름 -> 업종 분류" 라는 좁은 분류 문제다.
+  /// 큰 모델이 필요하지 않고, 4B 급이면 노트북 CPU 로도 수 초 안에 답한다.
+  ///
+  /// 설정에서 바꿀 수 있다. 추론(thinking) 모델을 넣으면
+  /// `OllamaRemoteDataSource` 가 요청 형태를 자동으로 맞춘다.
+  static const String defaultOllamaModel = 'gemma3:4b';
 
   /// LLM 분류 사용 여부.
   ///

@@ -61,7 +61,7 @@
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
 | 로컬 DB | sqflite (SQLite) — **스키마 v9** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
-| 로컬 LLM | Ollama (기본 모델 `qwen3:4b`) — **선택 기능, 기본 꺼짐** |
+| 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
 | 상태관리 | `ChangeNotifier` (외부 패키지 없음) |
 | DI | 손으로 만든 서비스 로케이터 (`lib/core/di/injector.dart`) |
@@ -522,11 +522,28 @@ LLM 이 만들어낸 값이 그대로 DB 에 들어가는 경로는 **없다.**
 
 ### 모델
 
-기본값은 **`qwen3:4b`** 다 (`AppSettings.defaultOllamaModel`).
+기본값은 **`gemma3:4b`** 다 (`AppSettings.defaultOllamaModel`).
 
 - 4B 급 모델을 쓰는 이유: 이 작업은 "가맹점 이름 → 업종 분류" 라는 좁은 분류 문제다. 큰 모델이 필요하지 않고, 노트북에서 CPU 로도 수 초 안에 답한다
-- 모델 이름은 **설정에서 바꿀 수 있다.** `gemma3:4b`, `llama3.2:3b` 등 Ollama 에 설치된 어떤 모델이든 쓸 수 있다
+- 모델 이름은 **설정에서 바꿀 수 있다.** Ollama 에 설치된 어떤 모델이든 쓸 수 있다
 - 설정에서 "연결 테스트" 를 누르면 서버 연결과 모델 설치 여부를 함께 확인한다
+
+### 모델에 따라 요청이 달라진다
+
+사용자가 아무 모델이나 넣을 수 있으므로 `OllamaRemoteDataSource` 가 적응한다.
+
+| 모델 | `think` 필드 | 프롬프트 `/no_think` |
+|---|---|---|
+| `gemma3`, `llama3.2`, `mistral`, `phi4`, `qwen2.5` | 보내지 않음 | 없음 |
+| `qwen3*`, `*deepseek-r1*`, `*-r1*`, `*thinking*` | `think: false` | 붙임 |
+
+**틀렸을 때의 손해가 비대칭이다.**
+
+- 추론 모델을 못 알아보면 `<think>` 블록이 섞여 오는데, 응답 정리 단계에서 어차피 제거한다 → 회복 가능
+- 반대로 일반 모델에 `think` 를 보내면 최신 Ollama 가 `does not support thinking` 으로 **요청 전체를 거절한다** → 분류 실패
+
+그래서 `isThinkingModel` 은 **확실한 것만** 추론 모델로 판단한다.
+`<think>` 블록 제거는 모델과 무관하게 항상 수행한다(방어적).
 
 ### 노트북이 꺼져 있을 때
 
@@ -560,7 +577,7 @@ Ollama 헬스체크
 ```bash
 # Windows (PowerShell)
 $env:OLLAMA_HOST="0.0.0.0:11434"; ollama serve
-ollama pull qwen3:4b
+ollama pull gemma3:4b
 ```
 
 ### 캐시 전략
@@ -1260,13 +1277,13 @@ adb install -r build/app/outputs/flutter-apk/app-debug.apk
 $env:OLLAMA_HOST="0.0.0.0:11434"; ollama serve
 
 # 모델 설치
-ollama pull qwen3:4b
+ollama pull gemma3:4b
 ```
 
 앱에서:
 
 1. 설정 → **Ollama 주소** → `http://<노트북 LAN IP>:11434`
-2. 설정 → **모델** → `qwen3:4b`
+2. 설정 → **모델** → `gemma3:4b`
 3. 설정 → **연결 테스트** → 서버·모델 확인
 4. 설정 → **AI 자동 분류 사용** 켜기
 5. 대시보드에 `AI 분석 대기 N건 [지금 분석]` 배너가 나타난다

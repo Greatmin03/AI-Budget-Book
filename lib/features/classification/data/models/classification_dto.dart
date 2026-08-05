@@ -8,7 +8,7 @@ import '../../domain/entities/merchant_classification.dart';
 /// LLM 원본 응답 -> 검증된 [MerchantClassification].
 ///
 /// LLM 출력은 절대 신뢰하지 않는다. 다음을 모두 통과해야 저장된다.
-///  1. `<think>` 블록 제거 (Qwen3 는 추론 모델이라 사고 과정을 뱉을 수 있다)
+///  1. `<think>` 블록 제거 (추론 모델은 사고 과정을 뱉을 수 있다)
 ///  2. 앞뒤 잡담/코드펜스를 무시하고 첫 JSON 객체만 추출
 ///  3. 필수 필드 존재 및 타입 확인
 ///  4. 카테고리/서브카테고리가 허용 목록에 있는지 검증 → 아니면 보정
@@ -59,7 +59,11 @@ class ClassificationDto {
     );
   }
 
-  /// Qwen3 등 추론 모델의 `<think> ... </think>` 블록 제거.
+  /// 추론 모델의 `<think> ... </think>` 블록 제거.
+  ///
+  /// 기본 모델(gemma3)은 이 블록을 만들지 않으므로 사실상 no-op 이지만,
+  /// 사용자가 설정에서 추론 모델로 바꿀 수 있으므로 항상 수행한다.
+  /// 모델을 가려서 처리하면 모델을 바꾼 순간 응답 파싱이 깨진다.
   static String _stripThinking(String raw) {
     return raw
         .replaceAll(RegExp(r'<think>[\s\S]*?</think>', caseSensitive: false), '')

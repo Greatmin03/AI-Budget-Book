@@ -43,7 +43,7 @@ class _FakeClassifier implements ClassifierRepository {
           reachable: true,
           message: '연결됨',
           modelInstalled: true,
-          installedModels: <String>['qwen3:4b'],
+          installedModels: <String>['gemma3:4b'],
         )
       : const LlmHealth(reachable: false, message: '연결 실패');
 
