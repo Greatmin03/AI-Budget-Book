@@ -1,5 +1,47 @@
 import '../../../../core/constants/app_categories.dart';
 
+/// 후보 여러 개를 비교한 결과.
+class PlaceConsensus {
+  const PlaceConsensus({
+    required this.pair,
+    required this.industry,
+    required this.agreeing,
+    required this.mappable,
+    required this.total,
+  });
+
+  const PlaceConsensus.ambiguous({required this.total, this.industry})
+      : pair = null,
+        agreeing = 0,
+        mappable = 0;
+
+  /// 다수결로 정해진 분류. null 이면 판단하지 못했다.
+  final CategoryPair? pair;
+
+  /// 대표 업종 문자열(캐시에 남겨 두면 나중에 참고가 된다).
+  final String? industry;
+
+  /// [pair] 에 동의한 후보 수.
+  final int agreeing;
+
+  /// 우리 분류 체계로 옮길 수 있었던 후보 수.
+  final int mappable;
+
+  /// 받은 후보 총 수.
+  final int total;
+
+  /// 자동 분류해도 되는가.
+  bool get isConfident => pair != null;
+
+  /// 후보 전체가 같은 업종이었는가(가장 강한 신호).
+  bool get isUnanimous => pair != null && agreeing == mappable && mappable > 1;
+
+  @override
+  String toString() => pair == null
+      ? '판단 불가 (후보 $total개, 업종 불일치)'
+      : '$pair ($agreeing/$mappable 일치, 후보 $total개)';
+}
+
 /// 장소 API 의 업종 문자열을 앱의 카테고리 체계로 옮긴다.
 ///
 /// 카카오 로컬 API 는 `category_name` 을 계층 문자열로 준다.
@@ -164,6 +206,86 @@ class PlaceCategoryMapper {
   /// 업종 문자열에서 사람이 읽을 대표 업종만 추출한다.
   ///
   /// `음식점 > 중식 > 중국요리` -> `중국요리`
+  /// 후보 여러 개의 업종을 비교해 **다수결로** 분류를 정한다.
+  ///
+  /// LLM 은 최후의 수단이다. 앱이 충분히 판단할 수 있으면 부르지 않는다.
+  /// 카카오가 이미 가진 실제 장소 정보를 최대한 활용하는 것이 목적이다.
+  ///
+  /// ```
+  /// 한식 한식 한식        -> 한식 (만장일치)
+  /// 한식 한식 한식 중식   -> 한식 (다수)
+  /// 카페 병원 약국 세탁소 -> 판단 불가 -> AI 대기열
+  /// ```
+  ///
+  /// ## 판단 기준
+  ///  - 후보 1개면 그대로 쓴다
+  ///  - 2개 이상이면 **최다 득표가 2표 이상이고 2위보다 많아야** 한다
+  ///    (2:2 동점, 1:1:1:1 처럼 갈리면 판단하지 않는다)
+  ///
+  /// 자동 분류는 사용자에게 묻지 않고 확정되므로, 애매하면 넘기는 편이 낫다.
+  PlaceConsensus resolveConsensus(List<String> categoryNames) {
+    if (categoryNames.isEmpty) {
+      return const PlaceConsensus.ambiguous(total: 0);
+    }
+
+    // 후보를 각각 우리 체계로 옮긴다. 못 옮기는 것은 투표에서 제외한다.
+    final Map<CategoryPair, int> votes = <CategoryPair, int>{};
+    final Map<CategoryPair, String> industries = <CategoryPair, String>{};
+
+    for (final String categoryName in categoryNames) {
+      final CategoryPair? pair = map(categoryName);
+      if (pair == null) continue;
+      votes[pair] = (votes[pair] ?? 0) + 1;
+      industries[pair] ??= primaryIndustry(categoryName) ?? categoryName;
+    }
+
+    final String? fallbackIndustry = primaryIndustry(categoryNames.first);
+
+    if (votes.isEmpty) {
+      // 업종은 받았지만 우리 체계로 옮길 수 없었다.
+      return PlaceConsensus.ambiguous(
+        total: categoryNames.length,
+        industry: fallbackIndustry,
+      );
+    }
+
+    final List<MapEntry<CategoryPair, int>> ranked = votes.entries.toList()
+      ..sort((MapEntry<CategoryPair, int> a, MapEntry<CategoryPair, int> b) =>
+          b.value.compareTo(a.value));
+
+    final MapEntry<CategoryPair, int> first = ranked.first;
+    final int mappable = votes.values.reduce((int a, int b) => a + b);
+
+    // 후보가 하나뿐이면 비교할 것이 없으므로 그대로 받아들인다.
+    if (mappable == 1) {
+      return PlaceConsensus(
+        pair: first.key,
+        industry: industries[first.key],
+        agreeing: 1,
+        mappable: 1,
+        total: categoryNames.length,
+      );
+    }
+
+    final int second = ranked.length > 1 ? ranked[1].value : 0;
+    final bool hasMajority = first.value >= 2 && first.value > second;
+
+    if (!hasMajority) {
+      return PlaceConsensus.ambiguous(
+        total: categoryNames.length,
+        industry: fallbackIndustry,
+      );
+    }
+
+    return PlaceConsensus(
+      pair: first.key,
+      industry: industries[first.key],
+      agreeing: first.value,
+      mappable: mappable,
+      total: categoryNames.length,
+    );
+  }
+
   static String? primaryIndustry(String? categoryName) {
     if (categoryName == null || categoryName.trim().isEmpty) return null;
     final List<String> segments = categoryName

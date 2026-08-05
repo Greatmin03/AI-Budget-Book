@@ -4,40 +4,67 @@ import 'package:http/http.dart' as http;
 
 import '../../../../core/logging/app_logger.dart';
 
+/// 검색 결과 한 건.
+class PlaceCandidate {
+  const PlaceCandidate({required this.placeName, required this.categoryName});
+
+  /// 장소 이름. 예: `행복반점 춘천점`
+  final String? placeName;
+
+  /// 업종 계층 문자열. 예: `음식점 > 중식 > 중국요리`
+  final String categoryName;
+
+  @override
+  String toString() => '${placeName ?? '?'} ($categoryName)';
+}
+
 /// 장소 검색 결과.
+///
+/// **후보를 여러 개 받는다.** 한 건만 받으면 이름이 흔한 가게에서 엉뚱한
+/// 결과가 그대로 확정된다. 여러 후보의 업종이 일치하는지 보면 그 판단이
+/// 얼마나 믿을 만한지 알 수 있다.
+///
+/// 후보를 늘려도 **API 호출은 여전히 1회**다. 응답에 몇 건을 담을지만 달라진다.
 class PlaceLookupResult {
   const PlaceLookupResult({
     required this.status,
-    this.placeName,
-    this.categoryName,
+    this.candidates = const <PlaceCandidate>[],
     this.message,
   });
 
   const PlaceLookupResult.notFound()
       : status = PlaceLookupStatus.notFound,
-        placeName = null,
-        categoryName = null,
+        candidates = const <PlaceCandidate>[],
         message = null;
 
   const PlaceLookupResult.quotaExceeded(this.message)
       : status = PlaceLookupStatus.quotaExceeded,
-        placeName = null,
-        categoryName = null;
+        candidates = const <PlaceCandidate>[];
 
   const PlaceLookupResult.failed(this.message)
       : status = PlaceLookupStatus.failed,
-        placeName = null,
-        categoryName = null;
+        candidates = const <PlaceCandidate>[];
 
   final PlaceLookupStatus status;
 
-  /// API 가 찾은 장소 이름.
-  final String? placeName;
-
-  /// 업종 계층 문자열. 예: `음식점 > 중식 > 중국요리`
-  final String? categoryName;
+  /// 관련도 순 후보 목록(최대 [PlaceApiDataSource.candidateCount]건).
+  final List<PlaceCandidate> candidates;
 
   final String? message;
+
+  /// 가장 관련도 높은 후보.
+  PlaceCandidate? get top =>
+      candidates.isEmpty ? null : candidates.first;
+
+  /// 대표 장소 이름(설정 화면의 "키 확인" 표시용).
+  String? get placeName => top?.placeName;
+
+  /// 대표 업종 문자열.
+  String? get categoryName => top?.categoryName;
+
+  /// 후보들의 업종 문자열 전체.
+  List<String> get categoryNames =>
+      candidates.map((PlaceCandidate c) => c.categoryName).toList();
 
   bool get isSuccess => status == PlaceLookupStatus.success;
 
@@ -79,6 +106,13 @@ class PlaceApiDataSource {
   static const String _host = 'dapi.kakao.com';
   static const String _path = '/v2/local/search/keyword.json';
 
+  /// 한 번의 호출로 받을 후보 수.
+  ///
+  /// 1건만 받으면 `본가` 처럼 흔한 이름에서 엉뚱한 가게가 그대로 확정된다.
+  /// 여러 후보의 업종이 일치하는지 보면 신뢰도를 판단할 수 있다.
+  /// **호출 횟수는 늘어나지 않는다.**
+  static const int candidateCount = 5;
+
   /// 브랜드명으로 장소를 검색한다.
   ///
   /// GPS 를 쓰지 않는다. 결제 알림에 이미 브랜드명이 있고,
@@ -96,8 +130,9 @@ class PlaceApiDataSource {
 
     final Uri uri = Uri.https(_host, _path, <String, String>{
       'query': query,
-      // 가장 관련도 높은 1건만 받는다. 호출량과 파싱 비용을 줄인다.
-      'size': '1',
+      // 후보를 여러 개 받아 업종이 일치하는지 본다.
+      // **호출 횟수는 1회로 같다.** 응답 크기만 조금 늘어난다.
+      'size': '$candidateCount',
     });
 
     try {
@@ -133,20 +168,25 @@ class PlaceApiDataSource {
         return const PlaceLookupResult.notFound();
       }
 
-      final Object? first = documents.first;
-      if (first is! Map<String, Object?>) {
-        return const PlaceLookupResult.notFound();
+      final List<PlaceCandidate> candidates = <PlaceCandidate>[];
+      for (final Object? document in documents) {
+        if (document is! Map<String, Object?>) continue;
+        // 업종이 없는 문서는 판단에 쓸 수 없으므로 버린다.
+        final String? categoryName = _string(document['category_name']);
+        if (categoryName == null) continue;
+        candidates.add(
+          PlaceCandidate(
+            placeName: _string(document['place_name']),
+            categoryName: categoryName,
+          ),
+        );
       }
 
-      final String? categoryName = _string(first['category_name']);
-      if (categoryName == null) {
-        return const PlaceLookupResult.notFound();
-      }
+      if (candidates.isEmpty) return const PlaceLookupResult.notFound();
 
       return PlaceLookupResult(
         status: PlaceLookupStatus.success,
-        placeName: _string(first['place_name']),
-        categoryName: categoryName,
+        candidates: candidates,
       );
     } on Object catch (e) {
       final String raw = e.toString();

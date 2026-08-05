@@ -1,4 +1,3 @@
-import '../../../../core/constants/app_categories.dart';
 import '../../../../core/logging/app_logger.dart';
 import '../../../../core/utils/text_normalizer.dart';
 import '../../../settings/domain/entities/app_settings.dart';
@@ -99,20 +98,24 @@ class LookupBrandIndustry {
       return null;
     }
 
-    // 업종 문자열을 카테고리 체계로 옮긴다.
-    final CategoryPair? pair = _mapper.map(result.categoryName);
-    final String? industry =
-        PlaceCategoryMapper.primaryIndustry(result.categoryName);
+    // 후보들의 업종을 비교해 다수결로 정한다.
+    //
+    // 한 건만 보고 확정하면 이름이 흔한 가게에서 엉뚱한 분류가 그대로
+    // 굳는다. 자동 분류는 사용자에게 묻지 않으므로 애매하면 넘기는 편이 낫다.
+    final PlaceConsensus consensus =
+        _mapper.resolveConsensus(result.categoryNames);
 
-    // 업종은 찾았지만 우리 체계로 옮길 수 없는 경우도 캐시한다.
-    // (같은 브랜드를 또 조회할 이유가 없다)
-    if (pair == null) {
-      AppLogger.i('업종을 분류로 옮기지 못함: $trimmed ($industry)');
+    // 판단하지 못한 경우도 캐시한다.
+    //
+    // 다시 조회해도 같은 후보가 오므로 재조회는 할당량만 쓴다.
+    // 캐시에 남으면 이후 이 브랜드는 AI 대기열(또는 사용자 선택)로 간다.
+    if (!consensus.isConfident) {
+      AppLogger.i('장소 후보로 판단하지 못함: $trimmed — $consensus');
       await _metadata.save(
         BrandMetadata(
           brand: trimmed,
           normalizedBrand: normalized,
-          industry: industry,
+          industry: consensus.industry,
           source: BrandMetadataSource.kakao,
           lookedUpAt: DateTime.now(),
           found: false,
@@ -121,13 +124,15 @@ class LookupBrandIndustry {
       return null;
     }
 
+    AppLogger.i('장소 후보 다수결: $trimmed — $consensus');
+
     return _metadata.save(
       BrandMetadata(
         brand: trimmed,
         normalizedBrand: normalized,
-        industry: industry,
-        category: pair.category,
-        subcategory: pair.subcategory,
+        industry: consensus.industry,
+        category: consensus.pair!.category,
+        subcategory: consensus.pair!.subcategory,
         source: BrandMetadataSource.kakao,
         lookedUpAt: DateTime.now(),
       ),
