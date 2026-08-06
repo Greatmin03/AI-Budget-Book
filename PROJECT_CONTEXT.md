@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v9** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v10** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 9`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 10`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -247,6 +247,7 @@ settlements  statistics  transactions
 | `projects` | 거래 묶음(폴더) | 삭제 시 거래는 `SET NULL` |
 | `accounts` | 자산 계좌와 **기준** 잔액 | 현재 잔액은 파생값 |
 | `account_snapshots` | 잔액 추이 기록 | |
+| `card_account_links` | 카드 이름 → 계좌 | 알림 거래를 잔액에 반영하는 다리 |
 | `notification_sources` | 수집 대상 앱 | 원본은 여기, 네이티브는 캐시 |
 | `brand_metadata` | 브랜드 업종/분류 캐시 | **못 찾음도 저장** |
 | `settings` | key-value 설정 | |
@@ -312,6 +313,14 @@ settlements  statistics  transactions
   UPDATE transactions SET ai_status = 'pending' WHERE needs_review = 1
   ```
   이 기능이 생기기 전에 모인 미분류도 한 번에 정리할 수 있어야 한다.
+
+#### v10 — 카드 → 계좌 연결
+- **추가 테이블**: `card_account_links` (`card_name` PK, `account_id`, `created_at`)
+- 알림은 카드 이름만 준다. 그 카드가 어느 계좌에서 빠져나가는지 앱은 알 수 없다.
+  연결이 없으면 수집된 거래에 `account_id` 가 없고, **아무리 쌓여도 잔액이 움직이지 않는다.**
+- **계좌 이름으로 짐작하지 않는다.** `KB국민카드` 와 `KB 입출금` 이 비슷하다고 이어 붙이면,
+  틀렸을 때 잔액이 조용히 어긋나고 사용자가 알아챌 방법이 없다. 사용자가 한 번 지정한다.
+- 데이터 마이그레이션은 없다. 연결은 사용자가 만드는 값이라 추측해서 채울 수 없다.
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 
@@ -815,6 +824,11 @@ RecordPaymentNotification (파싱 → 분류 → 저장)
 | 자산 현황 | ✅ (자산으로 쌓인다) |
 | 계좌 잔액 | ❌ 0 (총자산 불변) |
 
+**알림으로 수집된 거래는 카드 이름만 안다.** `account_id` 가 없으면 잔액에 잡히지 않으므로
+`card_account_links` 로 카드를 계좌에 한 번 연결한다. 연결하는 순간 **과거 거래에 소급 적용**되고
+(이미 계좌가 지정된 거래는 덮지 않는다), 이후 수집되는 거래는 `RecordPaymentNotification` 이
+저장 시점에 계좌를 붙인다. 해제하면 그 연결로 붙은 거래만 되돌린다.
+
 잔액 계산에는 **`amount`** 를 쓴다(`netAmountExpr` 아님). 카드에서 빠져나간 돈은 정산과 무관하고, 돌려받은 돈은 입금으로 따로 들어온다. net 을 쓰면 환급이 두 번 반영된다.
 
 ### 프로젝트
@@ -863,7 +877,8 @@ LLM 에게 "이번 달 지출 분석해줘" 라고 시키면 그럴듯한 **가�
 | 대시보드 | `dashboard_screen` | AI 대기 배너 · 분류 필요 · 입금 연결 · 수입/지출/순증가 · 총 소비 · 상위 카테고리/브랜드 · 하이라이트 · 예정 정기결제 |
 | 거래 | `transaction_list_screen` | 기간 헤더(순증가) · 날짜 바(수입/지출 분리) · 날짜 안에서 지출→수입 그룹화 |
 | 통계 | `statistics_screen` | 돈이 어디로 갔나(소비/저축/청약/투자) · 수입 통계 · 카테고리 도넛 · 카테고리 트리 · 소비 추이 · 브랜드 목록 |
-| 자산 | `assets_screen` | 총 자산 · 오늘/이번 주/이번 달 변화 · 종류별 계좌 묶음 · 계좌별 현재 잔액 |
+| 자산 | `assets_screen` | 총 자산 · 오늘/이번 주/이번 달 변화 · 종류별 계좌 묶음 · 계좌별 현재 잔액 · 카드 연결 |
+| 카드 연결 | `card_link_screen` | 거래에 등장한 카드 이름 → 계좌. 연결 시 과거 거래 소급 반영 |
 | 설정 | `settings_screen` | 알림 권한 · **알림 수집 앱** · 처리 현황 · 파싱 실패 보관함 · 카카오 API · **AI 분석 대기** · Ollama · 학습 · 데이터 |
 
 ### 하위 화면
