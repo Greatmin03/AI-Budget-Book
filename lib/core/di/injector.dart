@@ -247,7 +247,8 @@ class Injector {
       settlements: manageSettlements,
       transactions: transactions,
     );
-    addManualTransaction = AddManualTransaction(transactions);
+    addManualTransaction =
+        AddManualTransaction(transactions, merchants: merchants);
     narrator = const InsightNarrator();
     aiQueue = AiQueueController(
       process: processAiQueue,

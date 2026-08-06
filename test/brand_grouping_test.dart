@@ -15,8 +15,10 @@ import 'package:budget_book/features/settings/data/repositories/settings_reposit
 import 'package:budget_book/features/settlements/data/datasources/settlement_local_datasource.dart';
 import 'package:budget_book/features/settlements/data/repositories/settlement_repository_impl.dart';
 import 'package:budget_book/features/statistics/data/datasources/statistics_local_datasource.dart';
+import 'package:budget_book/features/transactions/domain/usecases/add_manual_transaction.dart';
 import 'package:budget_book/features/transactions/data/datasources/transaction_local_datasource.dart';
 import 'package:budget_book/features/transactions/data/repositories/transaction_repository_impl.dart';
+import 'package:budget_book/features/transactions/domain/entities/transaction.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
@@ -139,5 +141,81 @@ void main() {
     // 사전에 없으면 브랜드가 어디서 끝나고 지점이 어디서 시작하는지 알 수 없다.
     // 추측해서 자르면 서로 다른 브랜드가 합쳐진다. 지금은 갈라진 채 둔다.
     expect(top, hasLength(2), reason: '사전 미등록 브랜드의 알려진 한계');
+  });
+
+  test('직접 추가한 "씨유" 가 알림 거래의 CU 와 함께 묶인다', () async {
+    final RecordPaymentNotification record = await buildIngest();
+    await record(pay('씨유강원대제3학생', 30));
+
+    // 사용자가 현금 결제를 직접 추가한다. 같은 편의점이다.
+    final AddManualTransaction add = AddManualTransaction(
+      TransactionRepositoryImpl(TransactionLocalDataSource(db)),
+      merchants: MerchantRepositoryImpl(MerchantLocalDataSource(db)),
+    );
+    await add(
+      date: DateTime(2026, 8, 5, 15),
+      amount: 2000,
+      direction: TransactionDirection.expense,
+      category: '생활',
+      subcategory: '편의점',
+      brand: '씨유',
+    );
+
+    final List<Map<String, Object?>> top = await StatisticsLocalDataSource(db)
+        .byBrand(DateRange.month(DateTime(2026, 8, 5)), 10);
+
+    // 사용자는 같은 가게라고 생각하고 입력했다. 두 줄로 갈라지면
+    // "이번 달 CU 에서 얼마 썼나" 에 답할 수 없다.
+    expect(top, hasLength(1));
+    expect(top.first['brand'], 'CU');
+    expect(top.first['cnt'], 2);
+  });
+
+  test('직접 추가해도 입력한 이름은 그대로 남는다', () async {
+    final AddManualTransaction add = AddManualTransaction(
+      TransactionRepositoryImpl(TransactionLocalDataSource(db)),
+      merchants: MerchantRepositoryImpl(MerchantLocalDataSource(db)),
+    );
+    await add(
+      date: DateTime(2026, 8, 5, 15),
+      amount: 2000,
+      direction: TransactionDirection.expense,
+      category: '생활',
+      subcategory: '편의점',
+      brand: '씨유',
+    );
+
+    final Map<String, Object?> row = (await db.query(
+      DbSchema.tableTransactions,
+      columns: <String>[DbSchema.tBrand, DbSchema.tMerchantRaw],
+    ))
+        .single;
+
+    expect(row[DbSchema.tBrand], 'CU');
+    // 사용자가 무엇을 입력했는지는 남아야 한다. 근거를 지우면 되돌릴 수 없다.
+    expect(row[DbSchema.tMerchantRaw], '씨유');
+  });
+
+  test('사전에 없는 이름은 억지로 바꾸지 않는다', () async {
+    final AddManualTransaction add = AddManualTransaction(
+      TransactionRepositoryImpl(TransactionLocalDataSource(db)),
+      merchants: MerchantRepositoryImpl(MerchantLocalDataSource(db)),
+    );
+    await add(
+      date: DateTime(2026, 8, 5, 15),
+      amount: 9000,
+      direction: TransactionDirection.expense,
+      category: '식비',
+      subcategory: '한식',
+      brand: '학식',
+    );
+
+    final Map<String, Object?> row = (await db.query(
+      DbSchema.tableTransactions,
+      columns: <String>[DbSchema.tBrand],
+    ))
+        .single;
+
+    expect(row[DbSchema.tBrand], '학식');
   });
 }

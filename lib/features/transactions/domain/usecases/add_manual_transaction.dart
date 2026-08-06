@@ -1,5 +1,7 @@
 import '../../../../core/constants/classification_source.dart';
 import '../../../../core/logging/app_logger.dart';
+import '../../../merchants/domain/entities/merchant.dart';
+import '../../../merchants/domain/repositories/merchant_repository.dart';
 import '../../../parsing/domain/entities/parsed_payment.dart';
 import '../entities/transaction.dart';
 import '../repositories/transaction_repository.dart';
@@ -11,9 +13,38 @@ import '../repositories/transaction_repository.dart';
 /// 알림 기반 거래와 같은 테이블에 저장하되 `entrySource` 로 구분한다.
 /// 통계는 두 경로를 구분하지 않는다(둘 다 실제 지출이므로).
 class AddManualTransaction {
-  const AddManualTransaction(this._transactions);
+  const AddManualTransaction(this._transactions, {MerchantRepository? merchants})
+      : _merchants = merchants;
 
   final TransactionRepository _transactions;
+
+  /// 입력한 이름을 대표 브랜드로 바꾸는 데 쓴다. null 이면 입력값을 그대로 쓴다.
+  final MerchantRepository? _merchants;
+
+  /// 사용자가 입력한 이름에서 대표 브랜드를 찾는다.
+  ///
+  /// 알림 거래와 **같은 매칭기**를 쓴다. 그러지 않으면 `씨유` 라고 직접
+  /// 입력한 거래가 알림으로 들어온 `CU` 와 따로 집계되어, 사용자는 같은
+  /// 편의점이라고 생각했는데 통계는 두 줄로 보여 준다.
+  ///
+  /// 못 찾으면 입력값을 그대로 쓴다. 억지로 바꾸지 않는다.
+  Future<String> _canonicalize(String typed) async {
+    final MerchantRepository? merchants = _merchants;
+    if (merchants == null) return typed;
+
+    try {
+      final MerchantLookup lookup = await merchants.lookup(typed);
+      return switch (lookup) {
+        MerchantExactHit(:final Merchant merchant) => merchant.brand,
+        MerchantBrandHit(:final BrandRule rule) => rule.brand,
+        MerchantMiss() => typed,
+      };
+    } on Object catch (e, stack) {
+      // 브랜드 정규화 실패가 거래 저장을 막아서는 안 된다.
+      AppLogger.e('직접 입력 브랜드 정규화 실패', e, stack);
+      return typed;
+    }
+  }
 
   Future<Transaction> call({
     required DateTime date,
@@ -39,10 +70,12 @@ class AddManualTransaction {
     }
 
     final DateTime now = DateTime.now();
+    // 집계는 대표 브랜드로, 근거는 입력한 그대로.
+    final String canonicalBrand = await _canonicalize(trimmedBrand);
 
     final Transaction transaction = Transaction(
       merchantRaw: trimmedBrand,
-      brand: trimmedBrand,
+      brand: canonicalBrand,
       // 수입도 양수로 저장하고 direction 으로 구분한다.
       // 부호를 뒤집으면 "취소 거래(음수)" 와 구분이 안 된다.
       amount: amount,
@@ -77,6 +110,7 @@ class AddManualTransaction {
     }
 
     AppLogger.i('직접 입력: ${direction.label} $trimmedBrand $amount원'
+        '${canonicalBrand == trimmedBrand ? '' : ' -> $canonicalBrand'}'
         '${accountId == null ? '' : ' (계좌 반영)'}');
     return saved;
   }
