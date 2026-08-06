@@ -12,7 +12,21 @@ import '../entities/parsed_payment.dart';
 /// 남은 연속된 텍스트 덩어리 중 가장 그럴듯한 것을 가맹점으로 본다.
 /// 카드사마다 문장 구조가 달라도 이 방식은 비교적 잘 버틴다.
 class PaymentNotificationParser {
-  const PaymentNotificationParser();
+  const PaymentNotificationParser({this.recognizeBrand});
+
+  /// 후보가 **아는 브랜드인지** 알려 주는 함수(선택).
+  ///
+  /// 파서는 도메인 사전을 모른다. 대신 호출자가 판별기를 넘겨 주면
+  /// 후보 중 아는 브랜드를 우선한다.
+  ///
+  /// 왜 필요한가:
+  /// `씨유(CU) 춘천 백령점` 은 괄호에서 잘려 `씨유` / `CU` / `춘천 백령점`
+  /// 세 후보가 된다. "가장 긴 한글 후보" 규칙은 **지점명**인
+  /// `춘천 백령점` 을 고른다. 브랜드를 통째로 잃어 이미 아는 가맹점인데도
+  /// 카카오 API 와 AI 대기열까지 진행된다.
+  ///
+  /// 판별기를 주지 않으면 기존 규칙 그대로 동작한다.
+  final bool Function(String candidate)? recognizeBrand;
 
   /// 토큰을 지운 자리에 넣는 구분자. 가맹점 후보 경계를 만든다.
   static const String _sep = '\u0001';
@@ -487,15 +501,30 @@ class PaymentNotificationParser {
 
     if (candidates.isEmpty) return ParsedPayment.unknownMerchantLabel;
 
+    // 아는 브랜드가 후보에 있으면 그것을 고른다.
+    // 길이 규칙보다 우선한다 — 지점명이 브랜드보다 긴 경우가 흔하다.
+    final bool Function(String)? recognize = recognizeBrand;
+    if (recognize != null) {
+      final List<String> known = candidates.where(recognize).toList();
+      if (known.isNotEmpty) {
+        // 여러 개면 더 구체적인(긴) 쪽을 고른다.
+        known.sort((String a, String b) => b.length.compareTo(a.length));
+        return _capped(known.first);
+      }
+    }
+
     // 한글 포함 후보를 우선하고, 그중 가장 긴 것을 고른다.
     final List<String> korean =
         candidates.where(TextNormalizer.hasKorean).toList();
     final List<String> pool = korean.isNotEmpty ? korean : candidates;
     pool.sort((String a, String b) => b.length.compareTo(a.length));
 
-    final String best = pool.first;
-    return best.length > 40 ? best.substring(0, 40) : best;
+    return _capped(pool.first);
   }
+
+  /// 가맹점명이 지나치게 길면 자른다(알림 전문이 통째로 들어오는 경우).
+  static String _capped(String value) =>
+      value.length > 40 ? value.substring(0, 40) : value;
 
   bool _isMerchantCandidate(String value) {
     if (value.length < 2) return false;

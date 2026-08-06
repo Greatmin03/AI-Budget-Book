@@ -83,15 +83,16 @@ class AppDatabase {
   /// 브랜드 규칙 시드 주입. 이미 있는 pattern 은 건너뛴다(사용자 수정 보호).
   Future<void> _seedBrandRules(Database db) async {
     final Batch batch = db.batch();
-    for (final BrandSeedEntry entry in BrandSeed.entries) {
+    for (final Map<String, Object?> row in BrandSeed.rows) {
       batch.insert(
         DbSchema.tableBrandRules,
-        entry.toRow(),
+        row,
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     }
     await batch.commit(noResult: true);
-    AppLogger.i('브랜드 시드 ${BrandSeed.entries.length}건 주입 완료');
+    AppLogger.i('브랜드 시드 ${BrandSeed.rows.length}건 주입 완료 '
+        '(대표 브랜드 ${BrandSeed.definitions.length}개)');
   }
 
   Future<void> close() async {

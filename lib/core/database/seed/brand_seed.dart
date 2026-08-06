@@ -1,249 +1,1014 @@
+import '../../../features/merchants/domain/entities/brand_definition.dart';
 import '../db_schema.dart';
 
-/// 브랜드 부분일치 규칙 한 건.
+/// 내장 브랜드 사전.
 ///
-/// [pattern] 은 **정규화된 형태**(공백/특수문자 제거, 영문 소문자)여야 한다.
-/// `TextNormalizer.normalize` 를 통과한 가맹점 문자열 안에 [pattern] 이
-/// 포함되면 이 규칙이 적용된다.
-class BrandSeedEntry {
-  const BrandSeedEntry(
-    this.pattern,
-    this.brand,
-    this.category,
-    this.subcategory, {
-    this.priority = 0,
-  });
-
-  final String pattern;
-  final String brand;
-  final String category;
-  final String subcategory;
-
-  /// 여러 규칙이 동시에 일치할 때의 우선순위. 큰 값이 이긴다.
-  /// (기본 정렬은 "패턴 길이" 이므로 대부분 0으로 둔다.)
-  final int priority;
-
-  Map<String, Object?> toRow() => <String, Object?>{
-        DbSchema.brPattern: pattern,
-        DbSchema.brBrand: brand,
-        DbSchema.brCategory: category,
-        DbSchema.brSubcategory: subcategory,
-        DbSchema.brPriority: priority,
-        DbSchema.brSource: 'seed',
-      };
-}
-
-/// 초기 가맹점(브랜드) 사전.
+/// **대표 브랜드(canonical) 하나에 표기(alias) 여럿** 구조다.
+/// 은행·카드사가 같은 브랜드를 서로 다르게 보내기 때문이다.
 ///
-/// 여기에 있는 브랜드는 LLM 을 호출하지 않는다.
-/// 실사용 중 자주 등장하는 가맹점은 학습되어 `merchants` 테이블로 캐시된다.
+/// ```
+/// 씨유강원대제3학생 · 씨유(CU) 춘천 백령점 · CU 춘천점  ->  CU
+/// 지에스25춘천애막골 · 지에스25(GS25) 춘천              ->  GS25
+/// 메가MGC커피강원대점 · 메가커피춘천후평점              ->  메가MGC커피
+/// ```
+///
+/// 여기 있는 브랜드는 **카카오 API 도 LLM 도 호출하지 않는다.**
+/// 새 표기가 보이면 [BrandDefinition.aliases] 에 한 줄 추가하면 된다.
+///
+/// alias 는 정규화(소문자 + 공백/특수문자 제거)되어 비교되므로
+/// 대소문자나 띄어쓰기를 신경 쓰지 않아도 된다.
 class BrandSeed {
   const BrandSeed._();
 
-  static const List<BrandSeedEntry> entries = <BrandSeedEntry>[
-    // ------------------------------------------------------------ 카페 / 디저트
-    BrandSeedEntry('스타벅스', '스타벅스', '식비', '카페'),
-    BrandSeedEntry('starbucks', '스타벅스', '식비', '카페'),
-    BrandSeedEntry('메가mgc커피', '메가커피', '식비', '카페'),
-    BrandSeedEntry('메가커피', '메가커피', '식비', '카페'),
-    BrandSeedEntry('컴포즈커피', '컴포즈커피', '식비', '카페'),
-    BrandSeedEntry('빽다방', '빽다방', '식비', '카페'),
-    BrandSeedEntry('이디야', '이디야커피', '식비', '카페'),
-    BrandSeedEntry('투썸플레이스', '투썸플레이스', '식비', '카페'),
-    BrandSeedEntry('투썸', '투썸플레이스', '식비', '카페'),
-    BrandSeedEntry('커피빈', '커피빈', '식비', '카페'),
-    BrandSeedEntry('폴바셋', '폴바셋', '식비', '카페'),
-    BrandSeedEntry('할리스', '할리스커피', '식비', '카페'),
-    BrandSeedEntry('탐앤탐스', '탐앤탐스', '식비', '카페'),
-    BrandSeedEntry('공차', '공차', '식비', '카페'),
-    BrandSeedEntry('더벤티', '더벤티', '식비', '카페'),
-    BrandSeedEntry('파스쿠찌', '파스쿠찌', '식비', '카페'),
-    BrandSeedEntry('뚜레쥬르', '뚜레쥬르', '식비', '디저트'),
-    BrandSeedEntry('파리바게뜨', '파리바게뜨', '식비', '디저트'),
-    BrandSeedEntry('파리바게트', '파리바게뜨', '식비', '디저트'),
-    BrandSeedEntry('베스킨라빈스', '배스킨라빈스', '식비', '디저트'),
-    BrandSeedEntry('배스킨라빈스', '배스킨라빈스', '식비', '디저트'),
-    BrandSeedEntry('설빙', '설빙', '식비', '디저트'),
-    BrandSeedEntry('크리스피크림', '크리스피크림도넛', '식비', '디저트'),
-    BrandSeedEntry('던킨', '던킨', '식비', '디저트'),
-
-    // ------------------------------------------------------ 패스트푸드 / 치킨 / 피자
-    BrandSeedEntry('맥도날드', '맥도날드', '식비', '패스트푸드'),
-    BrandSeedEntry('mcdonald', '맥도날드', '식비', '패스트푸드'),
-    BrandSeedEntry('버거킹', '버거킹', '식비', '패스트푸드'),
-    BrandSeedEntry('맘스터치', '맘스터치', '식비', '패스트푸드'),
-    BrandSeedEntry('롯데리아', '롯데리아', '식비', '패스트푸드'),
-    BrandSeedEntry('kfc', 'KFC', '식비', '패스트푸드'),
-    BrandSeedEntry('써브웨이', '써브웨이', '식비', '패스트푸드'),
-    BrandSeedEntry('subway', '써브웨이', '식비', '패스트푸드'),
-    BrandSeedEntry('노브랜드버거', '노브랜드버거', '식비', '패스트푸드'),
-    BrandSeedEntry('bhc', 'BHC치킨', '식비', '치킨/피자'),
-    BrandSeedEntry('bbq', 'BBQ치킨', '식비', '치킨/피자'),
-    BrandSeedEntry('교촌', '교촌치킨', '식비', '치킨/피자'),
-    BrandSeedEntry('굽네', '굽네치킨', '식비', '치킨/피자'),
-    BrandSeedEntry('네네치킨', '네네치킨', '식비', '치킨/피자'),
-    BrandSeedEntry('푸라닭', '푸라닭', '식비', '치킨/피자'),
-    BrandSeedEntry('도미노피자', '도미노피자', '식비', '치킨/피자'),
-    BrandSeedEntry('피자헛', '피자헛', '식비', '치킨/피자'),
-    BrandSeedEntry('미스터피자', '미스터피자', '식비', '치킨/피자'),
-    BrandSeedEntry('반올림피자', '반올림피자', '식비', '치킨/피자'),
-
-    // ------------------------------------------------------------------ 외식
-    BrandSeedEntry('김밥천국', '김밥천국', '식비', '분식'),
-    BrandSeedEntry('아딸', '아딸', '식비', '분식'),
-    BrandSeedEntry('신전떡볶이', '신전떡볶이', '식비', '분식'),
-    BrandSeedEntry('백종원의원조쌈밥', '원조쌈밥집', '식비', '한식'),
-    BrandSeedEntry('한솥도시락', '한솥도시락', '식비', '한식'),
-    BrandSeedEntry('본죽', '본죽', '식비', '한식'),
-    BrandSeedEntry('새마을식당', '새마을식당', '식비', '한식'),
-    BrandSeedEntry('홍콩반점', '홍콩반점0410', '식비', '중식'),
-    BrandSeedEntry('중국집', '중식당', '식비', '중식'),
-    BrandSeedEntry('스시', '스시', '식비', '일식'),
-    BrandSeedEntry('이자카야', '이자카야', '식비', '주류'),
-    BrandSeedEntry('아웃백', '아웃백스테이크하우스', '식비', '양식'),
-    BrandSeedEntry('빕스', '빕스', '식비', '양식'),
-    BrandSeedEntry('배스킨', '배스킨라빈스', '식비', '디저트'),
-
-    // ------------------------------------------------------------------ 배달
-    BrandSeedEntry('배달의민족', '배달의민족', '식비', '배달'),
-    BrandSeedEntry('배민', '배달의민족', '식비', '배달'),
-    BrandSeedEntry('우아한형제들', '배달의민족', '식비', '배달'),
-    BrandSeedEntry('요기요', '요기요', '식비', '배달'),
-    BrandSeedEntry('쿠팡이츠', '쿠팡이츠', '식비', '배달'),
-    BrandSeedEntry('땡겨요', '땡겨요', '식비', '배달'),
-
-    // -------------------------------------------------------- 편의점 / 마트 / 생활
-    BrandSeedEntry('gs25', 'GS25', '생활', '편의점'),
-    BrandSeedEntry('cu', 'CU', '생활', '편의점'),
-    BrandSeedEntry('세븐일레븐', '세븐일레븐', '생활', '편의점'),
-    BrandSeedEntry('7eleven', '세븐일레븐', '생활', '편의점'),
-    BrandSeedEntry('이마트24', '이마트24', '생활', '편의점'),
-    BrandSeedEntry('미니스톱', '미니스톱', '생활', '편의점'),
-    BrandSeedEntry('이마트', '이마트', '생활', '마트'),
-    BrandSeedEntry('홈플러스', '홈플러스', '생활', '마트'),
-    BrandSeedEntry('롯데마트', '롯데마트', '생활', '마트'),
-    BrandSeedEntry('코스트코', '코스트코', '생활', '마트'),
-    BrandSeedEntry('costco', '코스트코', '생활', '마트'),
-    BrandSeedEntry('노브랜드', '노브랜드', '생활', '마트'),
-    BrandSeedEntry('하나로마트', '하나로마트', '생활', '마트'),
-    BrandSeedEntry('다이소', '다이소', '생활', '생활용품'),
-    BrandSeedEntry('무신사', '무신사', '쇼핑', '의류'),
-    BrandSeedEntry('올리브영', '올리브영', '생활', '미용'),
-    BrandSeedEntry('이케아', '이케아', '생활', '가구/인테리어'),
-    BrandSeedEntry('ikea', '이케아', '생활', '가구/인테리어'),
-    BrandSeedEntry('한샘', '한샘', '생활', '가구/인테리어'),
-
-    // ------------------------------------------------------------- 온라인 쇼핑
-    BrandSeedEntry('쿠팡', '쿠팡', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('coupang', '쿠팡', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('네이버페이', '네이버페이', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('11번가', '11번가', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('지마켓', 'G마켓', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('gmarket', 'G마켓', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('옥션', '옥션', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('위메프', '위메프', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('티몬', '티몬', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('알리익스프레스', '알리익스프레스', '쇼핑', '온라인쇼핑'),
-    BrandSeedEntry('컬리', '마켓컬리', '생활', '마트'),
-    BrandSeedEntry('오늘의집', '오늘의집', '생활', '가구/인테리어'),
-
-    // ------------------------------------------------------------------ 교통
-    BrandSeedEntry('카카오티', '카카오T', '교통', '택시'),
-    BrandSeedEntry('kakaot', '카카오T', '교통', '택시'),
-    BrandSeedEntry('카카오모빌리티', '카카오T', '교통', '택시'),
-    BrandSeedEntry('타다', '타다', '교통', '택시'),
-    BrandSeedEntry('우버', '우버', '교통', '택시'),
-    BrandSeedEntry('티머니', '티머니', '교통', '대중교통'),
-    BrandSeedEntry('캐시비', '캐시비', '교통', '대중교통'),
-    BrandSeedEntry('코레일', '코레일', '교통', '기차/고속버스'),
-    BrandSeedEntry('srt', 'SRT', '교통', '기차/고속버스'),
-    BrandSeedEntry('gs칼텍스', 'GS칼텍스', '교통', '주유'),
-    BrandSeedEntry('sk에너지', 'SK에너지', '교통', '주유'),
-    BrandSeedEntry('현대오일뱅크', '현대오일뱅크', '교통', '주유'),
-    BrandSeedEntry('s오일', 'S-OIL', '교통', '주유'),
-    BrandSeedEntry('soil', 'S-OIL', '교통', '주유'),
-    BrandSeedEntry('한국도로공사', '한국도로공사', '교통', '통행료'),
-    BrandSeedEntry('하이패스', '하이패스', '교통', '통행료'),
-    BrandSeedEntry('파킹클라우드', '아이파킹', '교통', '주차'),
-    BrandSeedEntry('아이파킹', '아이파킹', '교통', '주차'),
-
-    // ------------------------------------------------------------ 주거 / 통신
-    BrandSeedEntry('skt', 'SKT', '주거/통신', '통신비'),
-    BrandSeedEntry('sk텔레콤', 'SKT', '주거/통신', '통신비'),
-    BrandSeedEntry('kt', 'KT', '주거/통신', '통신비'),
-    BrandSeedEntry('lg유플러스', 'LG U+', '주거/통신', '통신비'),
-    BrandSeedEntry('uplus', 'LG U+', '주거/통신', '통신비'),
-    BrandSeedEntry('한국전력', '한국전력공사', '주거/통신', '공과금'),
-    BrandSeedEntry('도시가스', '도시가스', '주거/통신', '공과금'),
-    BrandSeedEntry('수도요금', '수도사업소', '주거/통신', '공과금'),
-
-    // ------------------------------------------------------------ 구독 서비스
-    BrandSeedEntry('넷플릭스', '넷플릭스', '주거/통신', '구독료'),
-    BrandSeedEntry('netflix', '넷플릭스', '주거/통신', '구독료'),
-    BrandSeedEntry('유튜브프리미엄', '유튜브 프리미엄', '주거/통신', '구독료'),
-    BrandSeedEntry('youtubepremium', '유튜브 프리미엄', '주거/통신', '구독료'),
-    BrandSeedEntry('googleyoutube', '유튜브 프리미엄', '주거/통신', '구독료'),
-    BrandSeedEntry('티빙', '티빙', '주거/통신', '구독료'),
-    BrandSeedEntry('웨이브', '웨이브', '주거/통신', '구독료'),
-    BrandSeedEntry('디즈니플러스', '디즈니+', '주거/통신', '구독료'),
-    BrandSeedEntry('왓챠', '왓챠', '주거/통신', '구독료'),
-    BrandSeedEntry('스포티파이', '스포티파이', '주거/통신', '구독료'),
-    BrandSeedEntry('멜론', '멜론', '주거/통신', '구독료'),
-    BrandSeedEntry('지니뮤직', '지니뮤직', '주거/통신', '구독료'),
-    BrandSeedEntry('chatgpt', 'ChatGPT', '주거/통신', '구독료'),
-    BrandSeedEntry('openai', 'OpenAI', '주거/통신', '구독료'),
-    BrandSeedEntry('claudeai', 'Claude', '주거/통신', '구독료'),
-    BrandSeedEntry('anthropic', 'Claude', '주거/통신', '구독료'),
-    BrandSeedEntry('githubcom', 'GitHub', '주거/통신', '구독료'),
-    BrandSeedEntry('icloud', 'iCloud', '주거/통신', '구독료'),
-    BrandSeedEntry('googlestorage', 'Google One', '주거/통신', '구독료'),
-
-    // ---------------------------------------------------------- 의료 / 건강
-    BrandSeedEntry('약국', '약국', '의료/건강', '약국'),
-    BrandSeedEntry('의원', '의원', '의료/건강', '병원'),
-    BrandSeedEntry('병원', '병원', '의료/건강', '병원'),
-    BrandSeedEntry('치과', '치과', '의료/건강', '치과'),
-    BrandSeedEntry('한의원', '한의원', '의료/건강', '병원'),
-    BrandSeedEntry('피부과', '피부과', '의료/건강', '병원'),
-    BrandSeedEntry('안과', '안과', '의료/건강', '병원'),
-    BrandSeedEntry('헬스', '헬스장', '의료/건강', '운동/피트니스'),
-    BrandSeedEntry('피트니스', '피트니스', '의료/건강', '운동/피트니스'),
-    BrandSeedEntry('요가', '요가원', '의료/건강', '운동/피트니스'),
-    BrandSeedEntry('필라테스', '필라테스', '의료/건강', '운동/피트니스'),
-
-    // ---------------------------------------------------------- 문화 / 여가
-    BrandSeedEntry('cgv', 'CGV', '문화/여가', '영화'),
-    BrandSeedEntry('롯데시네마', '롯데시네마', '문화/여가', '영화'),
-    BrandSeedEntry('메가박스', '메가박스', '문화/여가', '영화'),
-    BrandSeedEntry('교보문고', '교보문고', '문화/여가', '도서'),
-    BrandSeedEntry('예스24', 'YES24', '문화/여가', '도서'),
-    BrandSeedEntry('yes24', 'YES24', '문화/여가', '도서'),
-    BrandSeedEntry('알라딘', '알라딘', '문화/여가', '도서'),
-    BrandSeedEntry('밀리의서재', '밀리의 서재', '문화/여가', '도서'),
-    BrandSeedEntry('스팀', 'Steam', '문화/여가', '게임'),
-    BrandSeedEntry('steamgames', 'Steam', '문화/여가', '게임'),
-    BrandSeedEntry('플레이스테이션', '플레이스테이션', '문화/여가', '게임'),
-    BrandSeedEntry('닌텐도', '닌텐도', '문화/여가', '게임'),
-    BrandSeedEntry('야놀자', '야놀자', '문화/여가', '숙박'),
-    BrandSeedEntry('여기어때', '여기어때', '문화/여가', '숙박'),
-    BrandSeedEntry('아고다', '아고다', '문화/여가', '숙박'),
-    BrandSeedEntry('agoda', '아고다', '문화/여가', '숙박'),
-    BrandSeedEntry('에어비앤비', '에어비앤비', '문화/여가', '숙박'),
-    BrandSeedEntry('airbnb', '에어비앤비', '문화/여가', '숙박'),
-    BrandSeedEntry('인터파크', '인터파크', '문화/여가', '공연/전시'),
-    BrandSeedEntry('멜론티켓', '멜론티켓', '문화/여가', '공연/전시'),
-
-    // ---------------------------------------------------------------- 교육
-    BrandSeedEntry('인프런', '인프런', '교육', '온라인강의'),
-    BrandSeedEntry('패스트캠퍼스', '패스트캠퍼스', '교육', '온라인강의'),
-    BrandSeedEntry('udemy', 'Udemy', '교육', '온라인강의'),
-    BrandSeedEntry('학원', '학원', '교육', '학원'),
-
-    // ---------------------------------------------------------- 전자 / 기기
-    BrandSeedEntry('애플', 'Apple', '쇼핑', '전자기기'),
-    BrandSeedEntry('apple', 'Apple', '쇼핑', '전자기기'),
-    BrandSeedEntry('삼성전자', '삼성전자', '쇼핑', '전자기기'),
-    BrandSeedEntry('하이마트', '롯데하이마트', '쇼핑', '전자기기'),
-    BrandSeedEntry('전자랜드', '전자랜드', '쇼핑', '전자기기'),
+  static const List<BrandDefinition> definitions = <BrandDefinition>[
+    // ------------------------------------------------------------
+    // 식비 / 카페
+    BrandDefinition(
+      canonical: '스타벅스',
+      aliases: <String>['스타벅스', 'starbucks', '스타벅스코리아'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '컴포즈커피',
+      aliases: <String>['컴포즈커피'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '빽다방',
+      aliases: <String>['빽다방'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '이디야커피',
+      aliases: <String>['이디야', '이디야커피'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '투썸플레이스',
+      aliases: <String>['투썸플레이스', '투썸'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '커피빈',
+      aliases: <String>['커피빈'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '폴바셋',
+      aliases: <String>['폴바셋'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '할리스커피',
+      aliases: <String>['할리스'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '탐앤탐스',
+      aliases: <String>['탐앤탐스'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '공차',
+      aliases: <String>['공차'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '더벤티',
+      aliases: <String>['더벤티'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '파스쿠찌',
+      aliases: <String>['파스쿠찌'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    BrandDefinition(
+      canonical: '메가MGC커피',
+      aliases: <String>['메가mgc커피', '메가커피', '메가엠지씨커피', 'megamgccoffee', 'mega mgc coffee'],
+      category: '식비',
+      subcategory: '카페',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 디저트
+    BrandDefinition(
+      canonical: '뚜레쥬르',
+      aliases: <String>['뚜레쥬르'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    BrandDefinition(
+      canonical: '파리바게뜨',
+      aliases: <String>['파리바게뜨', '파리바게트'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    BrandDefinition(
+      canonical: '배스킨라빈스',
+      aliases: <String>['베스킨라빈스', '배스킨라빈스', '배스킨', '배라'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    BrandDefinition(
+      canonical: '설빙',
+      aliases: <String>['설빙'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    BrandDefinition(
+      canonical: '크리스피크림도넛',
+      aliases: <String>['크리스피크림'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    BrandDefinition(
+      canonical: '던킨',
+      aliases: <String>['던킨'],
+      category: '식비',
+      subcategory: '디저트',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 패스트푸드
+    BrandDefinition(
+      canonical: '맥도날드',
+      aliases: <String>['맥도날드', 'mcdonald', '한국맥도날드'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: '버거킹',
+      aliases: <String>['버거킹'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: '맘스터치',
+      aliases: <String>['맘스터치'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: '롯데리아',
+      aliases: <String>['롯데리아'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: 'KFC',
+      aliases: <String>['kfc'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: '써브웨이',
+      aliases: <String>['써브웨이', 'subway'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    BrandDefinition(
+      canonical: '노브랜드버거',
+      aliases: <String>['노브랜드버거'],
+      category: '식비',
+      subcategory: '패스트푸드',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 치킨/피자
+    BrandDefinition(
+      canonical: 'BHC치킨',
+      aliases: <String>['bhc'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: 'BBQ치킨',
+      aliases: <String>['bbq'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '교촌치킨',
+      aliases: <String>['교촌'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '굽네치킨',
+      aliases: <String>['굽네'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '네네치킨',
+      aliases: <String>['네네치킨'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '푸라닭',
+      aliases: <String>['푸라닭'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '도미노피자',
+      aliases: <String>['도미노피자'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '피자헛',
+      aliases: <String>['피자헛'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '미스터피자',
+      aliases: <String>['미스터피자'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    BrandDefinition(
+      canonical: '반올림피자',
+      aliases: <String>['반올림피자'],
+      category: '식비',
+      subcategory: '치킨/피자',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 분식
+    BrandDefinition(
+      canonical: '김밥천국',
+      aliases: <String>['김밥천국'],
+      category: '식비',
+      subcategory: '분식',
+    ),
+    BrandDefinition(
+      canonical: '아딸',
+      aliases: <String>['아딸'],
+      category: '식비',
+      subcategory: '분식',
+    ),
+    BrandDefinition(
+      canonical: '신전떡볶이',
+      aliases: <String>['신전떡볶이'],
+      category: '식비',
+      subcategory: '분식',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 한식
+    BrandDefinition(
+      canonical: '원조쌈밥집',
+      aliases: <String>['백종원의원조쌈밥'],
+      category: '식비',
+      subcategory: '한식',
+    ),
+    BrandDefinition(
+      canonical: '한솥도시락',
+      aliases: <String>['한솥도시락'],
+      category: '식비',
+      subcategory: '한식',
+    ),
+    BrandDefinition(
+      canonical: '본죽',
+      aliases: <String>['본죽'],
+      category: '식비',
+      subcategory: '한식',
+    ),
+    BrandDefinition(
+      canonical: '새마을식당',
+      aliases: <String>['새마을식당'],
+      category: '식비',
+      subcategory: '한식',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 중식
+    BrandDefinition(
+      canonical: '홍콩반점0410',
+      aliases: <String>['홍콩반점'],
+      category: '식비',
+      subcategory: '중식',
+    ),
+    BrandDefinition(
+      canonical: '중식당',
+      aliases: <String>['중국집'],
+      category: '식비',
+      subcategory: '중식',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 일식
+    BrandDefinition(
+      canonical: '스시',
+      aliases: <String>['스시'],
+      category: '식비',
+      subcategory: '일식',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 주류
+    BrandDefinition(
+      canonical: '이자카야',
+      aliases: <String>['이자카야'],
+      category: '식비',
+      subcategory: '주류',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 양식
+    BrandDefinition(
+      canonical: '아웃백스테이크하우스',
+      aliases: <String>['아웃백'],
+      category: '식비',
+      subcategory: '양식',
+    ),
+    BrandDefinition(
+      canonical: '빕스',
+      aliases: <String>['빕스'],
+      category: '식비',
+      subcategory: '양식',
+    ),
+    // ------------------------------------------------------------
+    // 식비 / 배달
+    BrandDefinition(
+      canonical: '배달의민족',
+      aliases: <String>['배달의민족', '배민', '우아한형제들'],
+      category: '식비',
+      subcategory: '배달',
+    ),
+    BrandDefinition(
+      canonical: '요기요',
+      aliases: <String>['요기요'],
+      category: '식비',
+      subcategory: '배달',
+    ),
+    BrandDefinition(
+      canonical: '쿠팡이츠',
+      aliases: <String>['쿠팡이츠'],
+      category: '식비',
+      subcategory: '배달',
+    ),
+    BrandDefinition(
+      canonical: '땡겨요',
+      aliases: <String>['땡겨요'],
+      category: '식비',
+      subcategory: '배달',
+    ),
+    // ------------------------------------------------------------
+    // 생활 / 편의점
+    BrandDefinition(
+      canonical: 'GS25',
+      aliases: <String>['gs25', '지에스25', '지에스이십오'],
+      category: '생활',
+      subcategory: '편의점',
+    ),
+    BrandDefinition(
+      canonical: 'CU',
+      aliases: <String>['cu', '씨유'],
+      category: '생활',
+      subcategory: '편의점',
+    ),
+    BrandDefinition(
+      canonical: '세븐일레븐',
+      aliases: <String>['세븐일레븐', '7eleven', '7일레븐'],
+      category: '생활',
+      subcategory: '편의점',
+    ),
+    BrandDefinition(
+      canonical: '이마트24',
+      aliases: <String>['이마트24', '이마트이십사'],
+      category: '생활',
+      subcategory: '편의점',
+    ),
+    BrandDefinition(
+      canonical: '미니스톱',
+      aliases: <String>['미니스톱'],
+      category: '생활',
+      subcategory: '편의점',
+    ),
+    // ------------------------------------------------------------
+    // 생활 / 마트
+    BrandDefinition(
+      canonical: '이마트',
+      aliases: <String>['이마트'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '홈플러스',
+      aliases: <String>['홈플러스'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '롯데마트',
+      aliases: <String>['롯데마트'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '코스트코',
+      aliases: <String>['코스트코', 'costco'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '노브랜드',
+      aliases: <String>['노브랜드'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '하나로마트',
+      aliases: <String>['하나로마트'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    BrandDefinition(
+      canonical: '마켓컬리',
+      aliases: <String>['컬리'],
+      category: '생활',
+      subcategory: '마트',
+    ),
+    // ------------------------------------------------------------
+    // 생활 / 생활용품
+    BrandDefinition(
+      canonical: '다이소',
+      aliases: <String>['다이소', '아성다이소'],
+      category: '생활',
+      subcategory: '생활용품',
+    ),
+    // ------------------------------------------------------------
+    // 쇼핑 / 의류
+    BrandDefinition(
+      canonical: '무신사',
+      aliases: <String>['무신사'],
+      category: '쇼핑',
+      subcategory: '의류',
+    ),
+    // ------------------------------------------------------------
+    // 생활 / 미용
+    BrandDefinition(
+      canonical: '올리브영',
+      aliases: <String>['올리브영', '씨제이올리브영'],
+      category: '생활',
+      subcategory: '미용',
+    ),
+    // ------------------------------------------------------------
+    // 생활 / 가구/인테리어
+    BrandDefinition(
+      canonical: '이케아',
+      aliases: <String>['이케아', 'ikea'],
+      category: '생활',
+      subcategory: '가구/인테리어',
+    ),
+    BrandDefinition(
+      canonical: '한샘',
+      aliases: <String>['한샘'],
+      category: '생활',
+      subcategory: '가구/인테리어',
+    ),
+    BrandDefinition(
+      canonical: '오늘의집',
+      aliases: <String>['오늘의집'],
+      category: '생활',
+      subcategory: '가구/인테리어',
+    ),
+    // ------------------------------------------------------------
+    // 쇼핑 / 온라인쇼핑
+    BrandDefinition(
+      canonical: '쿠팡',
+      aliases: <String>['쿠팡', 'coupang'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '네이버페이',
+      aliases: <String>['네이버페이'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '11번가',
+      aliases: <String>['11번가'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: 'G마켓',
+      aliases: <String>['지마켓', 'gmarket'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '옥션',
+      aliases: <String>['옥션'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '위메프',
+      aliases: <String>['위메프'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '티몬',
+      aliases: <String>['티몬'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    BrandDefinition(
+      canonical: '알리익스프레스',
+      aliases: <String>['알리익스프레스'],
+      category: '쇼핑',
+      subcategory: '온라인쇼핑',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 택시
+    BrandDefinition(
+      canonical: '카카오T',
+      aliases: <String>['카카오티', 'kakaot', '카카오모빌리티'],
+      category: '교통',
+      subcategory: '택시',
+    ),
+    BrandDefinition(
+      canonical: '타다',
+      aliases: <String>['타다'],
+      category: '교통',
+      subcategory: '택시',
+    ),
+    BrandDefinition(
+      canonical: '우버',
+      aliases: <String>['우버'],
+      category: '교통',
+      subcategory: '택시',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 대중교통
+    BrandDefinition(
+      canonical: '티머니',
+      aliases: <String>['티머니'],
+      category: '교통',
+      subcategory: '대중교통',
+    ),
+    BrandDefinition(
+      canonical: '캐시비',
+      aliases: <String>['캐시비'],
+      category: '교통',
+      subcategory: '대중교통',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 기차/고속버스
+    BrandDefinition(
+      canonical: '코레일',
+      aliases: <String>['코레일'],
+      category: '교통',
+      subcategory: '기차/고속버스',
+    ),
+    BrandDefinition(
+      canonical: 'SRT',
+      aliases: <String>['srt'],
+      category: '교통',
+      subcategory: '기차/고속버스',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 주유
+    BrandDefinition(
+      canonical: 'GS칼텍스',
+      aliases: <String>['gs칼텍스'],
+      category: '교통',
+      subcategory: '주유',
+    ),
+    BrandDefinition(
+      canonical: 'SK에너지',
+      aliases: <String>['sk에너지'],
+      category: '교통',
+      subcategory: '주유',
+    ),
+    BrandDefinition(
+      canonical: '현대오일뱅크',
+      aliases: <String>['현대오일뱅크'],
+      category: '교통',
+      subcategory: '주유',
+    ),
+    BrandDefinition(
+      canonical: 'S-OIL',
+      aliases: <String>['s오일', 'soil'],
+      category: '교통',
+      subcategory: '주유',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 통행료
+    BrandDefinition(
+      canonical: '한국도로공사',
+      aliases: <String>['한국도로공사'],
+      category: '교통',
+      subcategory: '통행료',
+    ),
+    BrandDefinition(
+      canonical: '하이패스',
+      aliases: <String>['하이패스'],
+      category: '교통',
+      subcategory: '통행료',
+    ),
+    // ------------------------------------------------------------
+    // 교통 / 주차
+    BrandDefinition(
+      canonical: '아이파킹',
+      aliases: <String>['파킹클라우드', '아이파킹'],
+      category: '교통',
+      subcategory: '주차',
+    ),
+    // ------------------------------------------------------------
+    // 주거/통신 / 통신비
+    BrandDefinition(
+      canonical: 'SKT',
+      aliases: <String>['skt', 'sk텔레콤'],
+      category: '주거/통신',
+      subcategory: '통신비',
+    ),
+    BrandDefinition(
+      canonical: 'KT',
+      aliases: <String>['kt'],
+      category: '주거/통신',
+      subcategory: '통신비',
+    ),
+    BrandDefinition(
+      canonical: 'LG U+',
+      aliases: <String>['lg유플러스', 'uplus'],
+      category: '주거/통신',
+      subcategory: '통신비',
+    ),
+    // ------------------------------------------------------------
+    // 주거/통신 / 공과금
+    BrandDefinition(
+      canonical: '한국전력공사',
+      aliases: <String>['한국전력'],
+      category: '주거/통신',
+      subcategory: '공과금',
+    ),
+    BrandDefinition(
+      canonical: '도시가스',
+      aliases: <String>['도시가스'],
+      category: '주거/통신',
+      subcategory: '공과금',
+    ),
+    BrandDefinition(
+      canonical: '수도사업소',
+      aliases: <String>['수도요금'],
+      category: '주거/통신',
+      subcategory: '공과금',
+    ),
+    // ------------------------------------------------------------
+    // 주거/통신 / 구독료
+    BrandDefinition(
+      canonical: '넷플릭스',
+      aliases: <String>['넷플릭스', 'netflix'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '유튜브 프리미엄',
+      aliases: <String>['유튜브프리미엄', 'youtubepremium', 'googleyoutube'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '티빙',
+      aliases: <String>['티빙'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '웨이브',
+      aliases: <String>['웨이브'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '디즈니+',
+      aliases: <String>['디즈니플러스'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '왓챠',
+      aliases: <String>['왓챠'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '스포티파이',
+      aliases: <String>['스포티파이'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '멜론',
+      aliases: <String>['멜론'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: '지니뮤직',
+      aliases: <String>['지니뮤직'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'ChatGPT',
+      aliases: <String>['chatgpt'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'OpenAI',
+      aliases: <String>['openai'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'Claude',
+      aliases: <String>['claudeai', 'anthropic'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'GitHub',
+      aliases: <String>['githubcom'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'iCloud',
+      aliases: <String>['icloud'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    BrandDefinition(
+      canonical: 'Google One',
+      aliases: <String>['googlestorage'],
+      category: '주거/통신',
+      subcategory: '구독료',
+    ),
+    // ------------------------------------------------------------
+    // 의료/건강 / 약국
+    BrandDefinition(
+      canonical: '약국',
+      aliases: <String>['약국'],
+      category: '의료/건강',
+      subcategory: '약국',
+    ),
+    // ------------------------------------------------------------
+    // 의료/건강 / 병원
+    BrandDefinition(
+      canonical: '의원',
+      aliases: <String>['의원'],
+      category: '의료/건강',
+      subcategory: '병원',
+    ),
+    BrandDefinition(
+      canonical: '병원',
+      aliases: <String>['병원'],
+      category: '의료/건강',
+      subcategory: '병원',
+    ),
+    BrandDefinition(
+      canonical: '한의원',
+      aliases: <String>['한의원'],
+      category: '의료/건강',
+      subcategory: '병원',
+    ),
+    BrandDefinition(
+      canonical: '피부과',
+      aliases: <String>['피부과'],
+      category: '의료/건강',
+      subcategory: '병원',
+    ),
+    BrandDefinition(
+      canonical: '안과',
+      aliases: <String>['안과'],
+      category: '의료/건강',
+      subcategory: '병원',
+    ),
+    // ------------------------------------------------------------
+    // 의료/건강 / 치과
+    BrandDefinition(
+      canonical: '치과',
+      aliases: <String>['치과'],
+      category: '의료/건강',
+      subcategory: '치과',
+    ),
+    // ------------------------------------------------------------
+    // 의료/건강 / 운동/피트니스
+    BrandDefinition(
+      canonical: '헬스장',
+      aliases: <String>['헬스'],
+      category: '의료/건강',
+      subcategory: '운동/피트니스',
+    ),
+    BrandDefinition(
+      canonical: '피트니스',
+      aliases: <String>['피트니스'],
+      category: '의료/건강',
+      subcategory: '운동/피트니스',
+    ),
+    BrandDefinition(
+      canonical: '요가원',
+      aliases: <String>['요가'],
+      category: '의료/건강',
+      subcategory: '운동/피트니스',
+    ),
+    BrandDefinition(
+      canonical: '필라테스',
+      aliases: <String>['필라테스'],
+      category: '의료/건강',
+      subcategory: '운동/피트니스',
+    ),
+    // ------------------------------------------------------------
+    // 문화/여가 / 영화
+    BrandDefinition(
+      canonical: 'CGV',
+      aliases: <String>['cgv'],
+      category: '문화/여가',
+      subcategory: '영화',
+    ),
+    BrandDefinition(
+      canonical: '롯데시네마',
+      aliases: <String>['롯데시네마'],
+      category: '문화/여가',
+      subcategory: '영화',
+    ),
+    BrandDefinition(
+      canonical: '메가박스',
+      aliases: <String>['메가박스'],
+      category: '문화/여가',
+      subcategory: '영화',
+    ),
+    // ------------------------------------------------------------
+    // 문화/여가 / 도서
+    BrandDefinition(
+      canonical: '교보문고',
+      aliases: <String>['교보문고'],
+      category: '문화/여가',
+      subcategory: '도서',
+    ),
+    BrandDefinition(
+      canonical: 'YES24',
+      aliases: <String>['예스24', 'yes24'],
+      category: '문화/여가',
+      subcategory: '도서',
+    ),
+    BrandDefinition(
+      canonical: '알라딘',
+      aliases: <String>['알라딘'],
+      category: '문화/여가',
+      subcategory: '도서',
+    ),
+    BrandDefinition(
+      canonical: '밀리의 서재',
+      aliases: <String>['밀리의서재'],
+      category: '문화/여가',
+      subcategory: '도서',
+    ),
+    // ------------------------------------------------------------
+    // 문화/여가 / 게임
+    BrandDefinition(
+      canonical: 'Steam',
+      aliases: <String>['스팀', 'steamgames'],
+      category: '문화/여가',
+      subcategory: '게임',
+    ),
+    BrandDefinition(
+      canonical: '플레이스테이션',
+      aliases: <String>['플레이스테이션'],
+      category: '문화/여가',
+      subcategory: '게임',
+    ),
+    BrandDefinition(
+      canonical: '닌텐도',
+      aliases: <String>['닌텐도'],
+      category: '문화/여가',
+      subcategory: '게임',
+    ),
+    // ------------------------------------------------------------
+    // 문화/여가 / 숙박
+    BrandDefinition(
+      canonical: '야놀자',
+      aliases: <String>['야놀자'],
+      category: '문화/여가',
+      subcategory: '숙박',
+    ),
+    BrandDefinition(
+      canonical: '여기어때',
+      aliases: <String>['여기어때'],
+      category: '문화/여가',
+      subcategory: '숙박',
+    ),
+    BrandDefinition(
+      canonical: '아고다',
+      aliases: <String>['아고다', 'agoda'],
+      category: '문화/여가',
+      subcategory: '숙박',
+    ),
+    BrandDefinition(
+      canonical: '에어비앤비',
+      aliases: <String>['에어비앤비', 'airbnb'],
+      category: '문화/여가',
+      subcategory: '숙박',
+    ),
+    // ------------------------------------------------------------
+    // 문화/여가 / 공연/전시
+    BrandDefinition(
+      canonical: '인터파크',
+      aliases: <String>['인터파크'],
+      category: '문화/여가',
+      subcategory: '공연/전시',
+    ),
+    BrandDefinition(
+      canonical: '멜론티켓',
+      aliases: <String>['멜론티켓'],
+      category: '문화/여가',
+      subcategory: '공연/전시',
+    ),
+    // ------------------------------------------------------------
+    // 교육 / 온라인강의
+    BrandDefinition(
+      canonical: '인프런',
+      aliases: <String>['인프런'],
+      category: '교육',
+      subcategory: '온라인강의',
+    ),
+    BrandDefinition(
+      canonical: '패스트캠퍼스',
+      aliases: <String>['패스트캠퍼스'],
+      category: '교육',
+      subcategory: '온라인강의',
+    ),
+    BrandDefinition(
+      canonical: 'Udemy',
+      aliases: <String>['udemy'],
+      category: '교육',
+      subcategory: '온라인강의',
+    ),
+    // ------------------------------------------------------------
+    // 교육 / 학원
+    BrandDefinition(
+      canonical: '학원',
+      aliases: <String>['학원'],
+      category: '교육',
+      subcategory: '학원',
+    ),
+    // ------------------------------------------------------------
+    // 쇼핑 / 전자기기
+    BrandDefinition(
+      canonical: 'Apple',
+      aliases: <String>['애플', 'apple'],
+      category: '쇼핑',
+      subcategory: '전자기기',
+    ),
+    BrandDefinition(
+      canonical: '삼성전자',
+      aliases: <String>['삼성전자'],
+      category: '쇼핑',
+      subcategory: '전자기기',
+    ),
+    BrandDefinition(
+      canonical: '롯데하이마트',
+      aliases: <String>['하이마트'],
+      category: '쇼핑',
+      subcategory: '전자기기',
+    ),
+    BrandDefinition(
+      canonical: '전자랜드',
+      aliases: <String>['전자랜드'],
+      category: '쇼핑',
+      subcategory: '전자기기',
+    ),
   ];
+
+  /// `brand_rules` 테이블에 넣을 행. alias 하나가 한 행이 된다.
+  ///
+  /// DB 매칭(부분일치)은 그대로 두고, 사전만 대표 브랜드 기준으로
+  /// 관리하기 위한 변환이다.
+  static List<Map<String, Object?>> get rows => <Map<String, Object?>>[
+        for (final BrandDefinition definition in definitions)
+          for (final String alias in definition.normalizedAliases)
+            <String, Object?>{
+              DbSchema.brPattern: alias,
+              DbSchema.brBrand: definition.canonical,
+              DbSchema.brCategory: definition.category,
+              DbSchema.brSubcategory: definition.subcategory,
+              DbSchema.brPriority: definition.priority,
+              DbSchema.brSource: 'seed',
+            },
+      ];
 }

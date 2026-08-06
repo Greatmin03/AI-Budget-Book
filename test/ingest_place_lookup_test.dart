@@ -10,6 +10,7 @@ import 'package:budget_book/features/ingest/domain/entities/ingest_result.dart';
 import 'package:budget_book/features/ingest/domain/usecases/record_payment_notification.dart';
 import 'package:budget_book/features/merchants/data/datasources/merchant_local_datasource.dart';
 import 'package:budget_book/features/merchants/data/repositories/merchant_repository_impl.dart';
+import 'package:budget_book/features/merchants/domain/services/brand_extractor.dart';
 import 'package:budget_book/features/notifications/domain/entities/raw_notification.dart';
 import 'package:budget_book/features/parsing/domain/services/payment_notification_parser.dart';
 import 'package:budget_book/features/recurring/data/repositories/recurring_repository_impl.dart';
@@ -77,7 +78,9 @@ void main() {
     final MerchantRepositoryImpl merchants =
         MerchantRepositoryImpl(MerchantLocalDataSource(db));
     return RecordPaymentNotification(
-      parser: const PaymentNotificationParser(),
+      parser: PaymentNotificationParser(
+        recognizeBrand: const BrandExtractor(BrandSeed.definitions).recognizes,
+      ),
       merchants: merchants,
       transactions: TransactionRepositoryImpl(TransactionLocalDataSource(db)),
       failures: IngestFailureRepositoryImpl(IngestFailureLocalDataSource(db)),
@@ -107,10 +110,10 @@ void main() {
         }
         // 내장 브랜드 사전(시드). 사전 히트 시 API 를 부르지 않는지 확인해야 한다.
         final Batch batch = db.batch();
-        for (final BrandSeedEntry entry in BrandSeed.entries) {
+        for (final Map<String, Object?> row in BrandSeed.rows) {
           batch.insert(
             DbSchema.tableBrandRules,
-            entry.toRow(),
+            row,
             conflictAlgorithm: ConflictAlgorithm.ignore,
           );
         }
@@ -207,5 +210,53 @@ void main() {
     expect(second.category, '식비');
     expect(second.subcategory, '카페');
     expect(second.needsReview, isFalse);
+  });
+  group('은행별 표기 차이 흡수 (Brand Extractor)', () {
+    // 이 기능의 목적은 정확히 이것이다:
+    // 이미 아는 브랜드는 카카오 API 도 AI 도 부르지 않는다.
+    for (final (String raw, String brand) sample in <(String, String)>[
+      ('씨유강원대제3학생', 'CU'),
+      ('씨유(CU) 춘천 백령점', 'CU'),
+      ('씨유강대병원점', 'CU'),
+      ('지에스25춘천애막골', 'GS25'),
+      ('지에스25춘천효제길', 'GS25'),
+      ('메가MGC커피강원대점', '메가MGC커피'),
+      ('메가커피춘천후평점', '메가MGC커피'),
+    ]) {
+      test('${sample.$1} -> ${sample.$2} (외부 호출 없음)', () async {
+        final RecordPaymentNotification record = await buildUseCase();
+
+        final Transaction tx = saved(await record(cardPayment(sample.$1)));
+
+        expect(tx.brand, sample.$2, reason: '대표 브랜드로 모여야 한다');
+        expect(tx.needsReview, isFalse, reason: '아는 브랜드이므로 물어볼 필요가 없다');
+        expect(
+          apiCallCount,
+          0,
+          reason: '사전으로 해결되면 카카오를 부르지 않는다',
+        );
+        expect(tx.aiStatus, AiStatus.none, reason: 'AI 대기열에도 넣지 않는다');
+      });
+    }
+
+    test('같은 브랜드의 다른 표기가 하나로 모인다', () async {
+      final RecordPaymentNotification record = await buildUseCase();
+
+      await record(cardPayment('씨유강원대제3학생', amount: 1000));
+      await record(cardPayment('씨유강대병원점', amount: 2000));
+      await record(cardPayment('CU 춘천점', amount: 3000));
+
+      final List<Map<String, Object?>> rows = await db.rawQuery(
+        'SELECT DISTINCT ${DbSchema.tBrand} AS b '
+        'FROM ${DbSchema.tableTransactions}',
+      );
+
+      expect(
+        rows.map((Map<String, Object?> r) => r['b']).toList(),
+        <String>['CU'],
+        reason: '표기가 달라도 통계에서 한 브랜드로 합쳐져야 한다',
+      );
+      expect(apiCallCount, 0);
+    });
   });
 }

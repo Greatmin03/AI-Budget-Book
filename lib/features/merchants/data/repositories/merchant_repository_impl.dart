@@ -1,8 +1,10 @@
 import '../../../../core/constants/classification_source.dart';
 import '../../../../core/logging/app_logger.dart';
 import '../../../../core/utils/text_normalizer.dart';
+import '../../domain/entities/brand_definition.dart';
 import '../../domain/entities/merchant.dart';
 import '../../domain/repositories/merchant_repository.dart';
+import '../../domain/services/brand_extractor.dart';
 import '../datasources/merchant_local_datasource.dart';
 import '../models/merchant_dto.dart';
 
@@ -42,7 +44,7 @@ class MerchantRepositoryImpl implements MerchantRepository {
     }
 
     // 3) 브랜드 사전 부분일치
-    final BrandMatch? match = await _matchBrand(normalized);
+    final BrandMatch? match = await _matchBrand(merchantRaw);
     if (match != null) {
       return MerchantBrandHit(match.rule, branch: match.branch);
     }
@@ -51,29 +53,58 @@ class MerchantRepositoryImpl implements MerchantRepository {
     return MerchantMiss(merchantRaw);
   }
 
-  /// 정규화된 가맹점명 안에서 브랜드 패턴을 찾는다.
-  Future<BrandMatch?> _matchBrand(NormalizedText normalized) async {
+  /// 브랜드 패턴을 찾는다.
+  ///
+  /// 매칭 알고리즘은 [BrandExtractor] 하나뿐이다. 여기서 따로 구현하면
+  /// 시드 사전과 DB 규칙이 서로 다른 규칙으로 매칭되어 갈라진다.
+  ///
+  /// DB 의 `brand_rules` 는 (패턴 -> 브랜드) 행이므로, 같은 브랜드끼리
+  /// 묶어 [BrandDefinition] 으로 만들어 넘긴다. 사용자 규칙은 priority 가
+  /// 높으므로 추출기 안에서 먼저 검사된다.
+  Future<BrandMatch?> _matchBrand(String merchantRaw) async {
     final List<BrandRule> rules = await _loadBrandRules();
+    if (rules.isEmpty) return null;
 
+    final BrandExtraction? extraction =
+        BrandExtractor(_toDefinitions(rules)).extract(merchantRaw);
+    if (extraction == null) return null;
+
+    // 어떤 규칙이 매칭됐는지 되찾아 호출자에게 그대로 돌려준다.
+    final BrandRule rule = rules.firstWhere(
+      (BrandRule r) => r.pattern == extraction.matchedAlias,
+      orElse: () => rules.firstWhere(
+        (BrandRule r) => r.brand == extraction.canonical,
+      ),
+    );
+    return BrandMatch(rule, extraction.branch);
+  }
+
+  /// DB 행을 대표 브랜드 단위로 묶는다.
+  ///
+  /// 정렬(우선순위 -> 길이)은 [_loadBrandRules] 가 이미 해 두었고,
+  /// 추출기도 같은 기준으로 다시 정렬하므로 순서가 유지된다.
+  static List<BrandDefinition> _toDefinitions(List<BrandRule> rules) {
+    final Map<String, List<BrandRule>> byBrand = <String, List<BrandRule>>{};
     for (final BrandRule rule in rules) {
       if (rule.pattern.isEmpty) continue;
-
-      // `cu`, `kt` 처럼 짧은 패턴은 완전일치만 허용(오탐 방지).
-      if (rule.requiresExactMatch) {
-        if (normalized.value == rule.pattern) {
-          return BrandMatch(rule, null);
-        }
-        continue;
-      }
-
-      final int index = normalized.value.indexOf(rule.pattern);
-      if (index < 0) continue;
-
-      final int end = index + rule.pattern.length;
-      final String branch = normalized.rawTailFrom(end);
-      return BrandMatch(rule, branch.isEmpty ? null : branch);
+      byBrand.putIfAbsent(rule.brand, () => <BrandRule>[]).add(rule);
     }
-    return null;
+
+    return <BrandDefinition>[
+      for (final MapEntry<String, List<BrandRule>> entry in byBrand.entries)
+        BrandDefinition(
+          canonical: entry.key,
+          aliases: <String>[
+            for (final BrandRule rule in entry.value) rule.pattern,
+          ],
+          category: entry.value.first.category,
+          subcategory: entry.value.first.subcategory,
+          // 같은 브랜드의 규칙 중 가장 높은 우선순위를 쓴다.
+          priority: entry.value
+              .map((BrandRule r) => r.priority)
+              .reduce((int a, int b) => a > b ? a : b),
+        ),
+    ];
   }
 
   Future<List<BrandRule>> _loadBrandRules() async {

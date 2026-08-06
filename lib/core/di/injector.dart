@@ -17,6 +17,7 @@ import '../../features/ingest/domain/usecases/record_payment_notification.dart';
 import '../../features/merchants/data/datasources/merchant_local_datasource.dart';
 import '../../features/merchants/data/repositories/merchant_repository_impl.dart';
 import '../../features/merchants/domain/repositories/merchant_repository.dart';
+import '../../features/merchants/domain/services/brand_extractor.dart';
 import '../../features/notifications/data/datasources/notification_platform_channel.dart';
 import '../../features/notifications/data/repositories/notification_listener_repository_impl.dart';
 import '../../features/notifications/data/repositories/notification_source_repository_impl.dart';
@@ -53,6 +54,7 @@ import '../../features/transactions/domain/repositories/transaction_repository.d
 import '../../features/transactions/domain/usecases/add_manual_transaction.dart';
 import '../../features/transactions/domain/usecases/apply_user_correction.dart';
 import '../database/app_database.dart';
+import '../database/seed/brand_seed.dart';
 import '../logging/app_logger.dart';
 
 /// 아주 단순한 서비스 로케이터.
@@ -211,7 +213,11 @@ class Injector {
       settings: settings,
     );
     recordPayment = RecordPaymentNotification(
-      parser: const PaymentNotificationParser(),
+      // 파서가 후보 중 아는 브랜드를 고를 수 있게 사전을 넘긴다.
+      // (`씨유(CU) 춘천 백령점` 에서 지점명 대신 브랜드를 고르게 한다)
+      parser: PaymentNotificationParser(
+        recognizeBrand: const BrandExtractor(BrandSeed.definitions).recognizes,
+      ),
       merchants: merchants,
       transactions: transactions,
       failures: ingestFailures,

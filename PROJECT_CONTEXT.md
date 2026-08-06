@@ -239,7 +239,7 @@ settlements  statistics  transactions
 |---|---|---|
 | `transactions` | **원본 거래.** 가계부의 중심 | 금액을 고쳐 쓰지 않는다 |
 | `merchants` | 학습된 가맹점 (원본 거래명 → 분류) | |
-| `brand_rules` | 브랜드 패턴 규칙 (시드 + 사용자) | `priority` 로 사용자 규칙이 시드를 이긴다 |
+| `brand_rules` | 브랜드 표기(alias) 규칙 (시드 + 사용자) | `priority` 로 사용자 규칙이 시드를 이긴다. 시드는 `BrandDefinition` 에서 생성 |
 | `settlements` | 더치페이로 돌려받은 금액 | 거래 1:N |
 | `deposits` | 입금 알림 (정산 후보) | **브랜드 학습 안 함** |
 | `recurring_rules` | 정기결제 규칙 | 거래 위의 메타데이터 |
@@ -410,7 +410,7 @@ static const String aiPendingOnly = "t.ai_status = 'pending'";
 
 | 단계 | 클래스 |
 |---|---|
-| ①② | `MerchantRepositoryImpl.lookup` (가맹점 캐시 → 브랜드 규칙) |
+| ①② | `MerchantRepositoryImpl.lookup` → `BrandExtractor` (가맹점 캐시 → 브랜드 사전) |
 | ③ | `LookupBrandIndustry` + `PlaceApiDataSource` + `PlaceCategoryMapper` |
 | ④ | `RecordPaymentNotification._resolveUnknown` → `ai_status = 'pending'` |
 | ⑤ | `ProcessAiPendingQueue` + `ClassifierRepositoryImpl` + `OllamaRemoteDataSource` |
