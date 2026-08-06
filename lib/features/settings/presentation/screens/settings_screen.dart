@@ -9,6 +9,7 @@ import '../../../classification/presentation/controllers/ai_queue_controller.dar
 import '../../../ingest/domain/services/notification_ingest_service.dart';
 import '../controllers/settings_controller.dart';
 import '../../../notifications/domain/entities/notification_source.dart';
+import '../../../transactions/domain/usecases/normalize_existing_brands.dart';
 import '../widgets/ingest_failures_sheet.dart';
 import '../widgets/notification_sources_sheet.dart';
 import '../widgets/text_setting_dialog.dart';
@@ -377,6 +378,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: Text('${_controller.transactionCount}건'),
             ),
             ListTile(
+              leading: const Icon(Icons.merge_type_outlined),
+              title: const Text('브랜드 재정규화'),
+              subtitle: const Text(
+                '이미 저장된 거래의 브랜드를 지금의 사전 기준으로 다시 맞춥니다. '
+                '갈라져 있던 같은 가게가 한 줄로 합쳐집니다.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _normalizeBrands,
+            ),
+            ListTile(
               leading: const Icon(Icons.article_outlined),
               title: const Text('동작 로그'),
               subtitle: const Text('최근 처리 내역(앱 내부에만 저장됩니다)'),
@@ -414,6 +425,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return '감지된 ${config.sources.length}개 앱 전체를 수집하고 있습니다.';
     }
     return '${config.sources.length}개 중 ${config.enabledCount}개만 수집합니다.';
+  }
+
+  /// 이미 저장된 거래의 브랜드를 사전 기준으로 다시 맞춘다.
+  ///
+  /// **사용자의 실제 가계부를 고치는 작업이다.** 무엇이 바뀌는지 먼저 보여 주고
+  /// 확인을 받는다. 원본 거래명은 건드리지 않으므로 사전이 바뀌면 다시 돌려도
+  /// 된다.
+  Future<void> _normalizeBrands() async {
+    final NormalizeExistingBrands normalize = NormalizeExistingBrands(
+      transactions: Injector.instance.transactions,
+      merchants: Injector.instance.merchants,
+    );
+
+    final BrandNormalizationResult preview;
+    try {
+      preview = await normalize.preview();
+    } on Object catch (e) {
+      _notify('확인하지 못했습니다. ($e)');
+      return;
+    }
+    if (!mounted) return;
+
+    if (preview.isEmpty) {
+      _notify('바꿀 브랜드가 없습니다. 이미 모두 정리되어 있습니다.');
+      return;
+    }
+
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('브랜드 재정규화'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                '브랜드 ${preview.brandCount}종 / 거래 '
+                '${preview.transactionsUpdated}건이 바뀝니다.',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              // 무엇이 바뀌는지 보여 준다. 목록이 길면 앞쪽만.
+              ...preview.renames.take(10).map(
+                    (BrandRename r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '${r.from} → ${r.to}  (${r.count}건)',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ),
+              if (preview.renames.length > 10)
+                Text(
+                  '외 ${preview.renames.length - 10}종',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Text(
+                '원본 거래명은 바뀌지 않습니다.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('적용'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final BrandNormalizationResult result = await normalize();
+      _notify('브랜드 ${result.brandCount}종 / 거래 '
+          '${result.transactionsUpdated}건을 정리했습니다.');
+    } on Object catch (e) {
+      _notify('정리하지 못했습니다. ($e)');
+    }
+  }
+
+  void _notify(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// 대기열을 지금 처리한다. 결과를 스낵바로 알려 준다.

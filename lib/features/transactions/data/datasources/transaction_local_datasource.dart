@@ -245,6 +245,38 @@ class TransactionLocalDataSource {
   }
 
   /// 브랜드 단위 재분류. 사용자가 개별로 고친 거래는 보존한다.
+  /// (원본 거래명, 현재 브랜드) 조합과 건수. 브랜드 재정규화용.
+  ///
+  /// 같은 조합은 정규화 결과도 같으므로 사전 조회를 조합당 한 번으로 줄인다.
+  Future<List<Map<String, Object?>>> distinctBrandSources() {
+    return _db.rawQuery(
+      'SELECT ${DbSchema.tMerchantRaw} AS merchant_raw, '
+      '${DbSchema.tBrand} AS brand, '
+      'COUNT(*) AS cnt '
+      'FROM $_t '
+      'WHERE ${DbSchema.tMerchantRaw} IS NOT NULL '
+      "AND TRIM(${DbSchema.tMerchantRaw}) != '' "
+      'GROUP BY ${DbSchema.tMerchantRaw}, ${DbSchema.tBrand} '
+      'ORDER BY cnt DESC',
+    );
+  }
+
+  /// 브랜드 표기만 바꾼다. `merchant_raw` 는 그대로 둔다.
+  ///
+  /// [from] 을 조건에 넣어, 조회 후 사용자가 손댄 거래를 덮지 않는다.
+  Future<int> renameBrand({
+    required String merchantRaw,
+    required String from,
+    required String to,
+    required int updatedAt,
+  }) {
+    return _db.rawUpdate(
+      'UPDATE $_t SET ${DbSchema.tBrand} = ?, ${DbSchema.tUpdatedAt} = ? '
+      'WHERE ${DbSchema.tMerchantRaw} = ? AND ${DbSchema.tBrand} = ?',
+      <Object?>[to, updatedAt, merchantRaw, from],
+    );
+  }
+
   Future<int> reclassifyByBrand({
     required String brand,
     required String category,

@@ -29,6 +29,21 @@ abstract interface class TransactionRepository {
 
   Future<void> delete(int id);
 
+  /// 브랜드 재정규화 대상: (원본 거래명, 현재 브랜드) 조합과 건수.
+  ///
+  /// 거래를 한 건씩 훑지 않고 조합 단위로 묶어 온다. 같은 가게를 백 번 갔어도
+  /// 사전 조회는 한 번이면 된다.
+  Future<List<BrandSource>> distinctBrandSources();
+
+  /// 브랜드 표기만 바꾼다. **`merchant_raw` 는 건드리지 않는다.**
+  ///
+  /// [from] 을 함께 받아 그 사이 다른 값으로 바뀐 거래를 덮지 않는다.
+  Future<int> renameBrand({
+    required String merchantRaw,
+    required String from,
+    required String to,
+  });
+
   /// 같은 브랜드의 거래들 분류를 일괄 변경한다(사용자 학습 전파).
   ///
   /// [onlyFrom] 이 주어지면 그 시각 이후 거래만 대상으로 한다.
@@ -95,4 +110,28 @@ abstract interface class TransactionRepository {
 
   /// 거래 자체는 그대로지만 파생 값(정산 합계 등)이 바뀌었을 때 알린다.
   void notifyChanged();
+}
+
+/// 브랜드 재정규화의 한 단위.
+///
+/// 같은 원본 거래명은 항상 같은 브랜드로 정규화되므로, 거래 하나하나가
+/// 아니라 이 조합을 단위로 계산한다.
+class BrandSource {
+  const BrandSource({
+    required this.merchantRaw,
+    required this.brand,
+    required this.count,
+  });
+
+  /// 알림에서 받은(또는 직접 입력한) 원본 거래명. 정규화의 입력이다.
+  final String merchantRaw;
+
+  /// 현재 집계에 쓰이는 브랜드.
+  final String brand;
+
+  /// 이 조합에 해당하는 거래 수.
+  final int count;
+
+  @override
+  String toString() => '$merchantRaw -> $brand ($count건)';
 }

@@ -205,6 +205,36 @@ class TransactionRepositoryImpl implements TransactionRepository {
   }
 
   @override
+  Future<List<BrandSource>> distinctBrandSources() async {
+    final List<Map<String, Object?>> rows = await _local.distinctBrandSources();
+    return rows
+        .map(
+          (Map<String, Object?> row) => BrandSource(
+            merchantRaw: (row['merchant_raw'] as String?) ?? '',
+            brand: (row['brand'] as String?) ?? '',
+            count: (row['cnt'] as int?) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  @override
+  Future<int> renameBrand({
+    required String merchantRaw,
+    required String from,
+    required String to,
+  }) async {
+    final int updated = await _local.renameBrand(
+      merchantRaw: merchantRaw,
+      from: from,
+      to: to,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    if (updated > 0) _notify();
+    return updated;
+  }
+
+  @override
   Future<int> reclassifyByBrand({
     required String brand,
     required String category,
