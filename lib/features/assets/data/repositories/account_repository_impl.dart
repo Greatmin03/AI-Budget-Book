@@ -157,7 +157,12 @@ class AccountRepositoryImpl implements AccountRepository {
       whereArgs: <Object?>[id],
       limit: 1,
     );
-    return rows.isEmpty ? null : _fromRow(rows.first);
+    if (rows.isEmpty) return null;
+
+    // findAll 과 같은 값을 돌려줘야 한다. 거래 반영분을 빼면 화면마다 잔액이
+    // 달라진다.
+    final Map<int, int> deltas = await _transactionDeltas();
+    return _fromRow(rows.first).copyWith(transactionDelta: deltas[id] ?? 0);
   }
 
   @override

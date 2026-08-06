@@ -32,8 +32,10 @@ import '../../features/settlements/data/repositories/settlement_repository_impl.
 import '../../features/settlements/domain/repositories/settlement_repository.dart';
 import '../../features/settlements/domain/usecases/manage_settlements.dart';
 import '../../features/assets/data/repositories/account_repository_impl.dart';
+import '../../features/assets/data/repositories/card_account_link_repository_impl.dart';
 import '../../features/assets/data/repositories/asset_repository_impl.dart';
 import '../../features/assets/domain/repositories/account_repository.dart';
+import '../../features/assets/domain/repositories/card_account_link_repository.dart';
 import '../../features/assets/domain/repositories/asset_repository.dart';
 import '../../features/insights/data/repositories/insight_repository_impl.dart';
 import '../../features/insights/domain/repositories/insight_repository.dart';
@@ -104,6 +106,9 @@ class Injector {
 
   /// 자산 계좌(잔액·총자산·추이).
   late final AccountRepository accounts;
+
+  /// 카드 이름 -> 계좌 연결. 알림 거래를 잔액에 반영하는 다리다.
+  late final CardAccountLinkRepository cardAccountLinks;
 
   /// 프로젝트(폴더).
   late final ProjectRepository projects;
@@ -178,6 +183,7 @@ class Injector {
     recurring = RecurringRepositoryImpl(db);
     assets = AssetRepositoryImpl(db);
     accounts = AccountRepositoryImpl(db);
+    cardAccountLinks = CardAccountLinkRepositoryImpl(db);
     projects = ProjectRepositoryImpl(db);
     insights = InsightRepositoryImpl(db);
     analytics = AnalyticsRepositoryImpl(
@@ -225,6 +231,7 @@ class Injector {
       deposits: deposits,
       recurring: recurring,
       lookupIndustry: lookupBrandIndustry,
+      cardLinks: cardAccountLinks,
     );
     applyUserCorrection = ApplyUserCorrection(
       merchants: merchants,

@@ -4,6 +4,7 @@ import '../../../../core/utils/text_normalizer.dart';
 import '../../../classification/domain/entities/brand_metadata.dart';
 import '../../../classification/domain/entities/merchant_classification.dart';
 import '../../../classification/domain/services/rule_based_classifier.dart';
+import '../../../assets/domain/repositories/card_account_link_repository.dart';
 import '../../../classification/domain/usecases/lookup_brand_industry.dart';
 import '../../../merchants/domain/entities/merchant.dart';
 import '../../../merchants/domain/repositories/merchant_repository.dart';
@@ -43,10 +44,12 @@ class RecordPaymentNotification {
     required DepositRepository deposits,
     required RecurringRepository recurring,
     LookupBrandIndustry? lookupIndustry,
+    CardAccountLinkRepository? cardLinks,
     RuleBasedClassifier ruleBased = const RuleBasedClassifier(),
     BrandLearningPolicy policy = const BrandLearningPolicy(),
   })  : _policy = policy,
         _lookupBrandIndustry = lookupIndustry,
+        _cardLinks = cardLinks,
         _deposits = deposits,
         _recurring = recurring,
         _parser = parser,
@@ -77,6 +80,28 @@ class RecordPaymentNotification {
 
   /// 장소 API 업종 조회. null 이면 이 단계를 건너뛴다.
   final LookupBrandIndustry? _lookupBrandIndustry;
+
+  /// 카드 이름 -> 계좌 연결. null 이면 잔액에 반영하지 않는다.
+  final CardAccountLinkRepository? _cardLinks;
+
+  /// 이 결제가 빠져나갈 계좌를 찾는다.
+  ///
+  /// 알림은 `KB국민카드` 같은 카드 이름만 준다. 사용자가 그 카드를 계좌에
+  /// 연결해 두었다면 잔액에 자동 반영된다. 연결이 없으면 null 이고
+  /// 거래는 잔액에 영향을 주지 않는다(기록은 그대로 남는다).
+  Future<int?> _resolveAccount(String? cardName) async {
+    final CardAccountLinkRepository? links = _cardLinks;
+    if (links == null || cardName == null || cardName.trim().isEmpty) {
+      return null;
+    }
+    try {
+      return await links.accountIdFor(cardName);
+    } on Object catch (e, stack) {
+      // 잔액 연결 실패가 거래 기록을 막아서는 안 된다.
+      AppLogger.e('카드-계좌 연결 조회 실패', e, stack);
+      return null;
+    }
+  }
 
   /// 업종 조회를 안전하게 감싼다. 실패해도 기록을 막지 않는다.
   ///
@@ -180,8 +205,12 @@ class RecordPaymentNotification {
       amount: payment.amount,
     );
 
-    // ---------------------------------------------------------- 5) 거래 저장
+    // ------------------------------------------------- 5) 잔액 반영 계좌 확인
+    final int? accountId = await _resolveAccount(payment.cardName);
+
+    // ---------------------------------------------------------- 6) 거래 저장
     final Transaction transaction = Transaction(
+      accountId: accountId,
       recurringRuleId: rule?.id,
       merchantId: resolution.merchant?.id,
       merchantRaw: payment.merchantRaw,

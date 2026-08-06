@@ -5,6 +5,7 @@ import '../../../../core/logging/app_logger.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../domain/entities/account.dart';
+import 'card_link_screen.dart';
 
 /// 자산 현황.
 ///
@@ -107,6 +108,15 @@ class _AssetsScreenState extends State<AssetsScreen> {
     await _load();
   }
 
+  Future<void> _openCardLinks() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const CardLinkScreen()),
+    );
+    if (!mounted) return;
+    // 연결은 과거 거래를 소급 반영하므로 잔액이 바뀌어 있을 수 있다.
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,6 +149,23 @@ class _AssetsScreenState extends State<AssetsScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
+                    AppTheme.cardSurface(
+                      context,
+                      child: ListTile(
+                        leading: const Icon(Icons.credit_card_outlined),
+                        title: const Text(
+                          '카드 연결',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          '카드를 계좌에 연결하면 알림 거래가 잔액에 반영됩니다',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 20),
+                        onTap: _openCardLinks,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Text(
                       '금액을 누르면 잔액을 갱신할 수 있습니다.\n'
                       '갱신할 때마다 기록이 남아 자산 추이가 계산됩니다.',

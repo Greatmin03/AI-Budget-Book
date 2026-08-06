@@ -23,7 +23,9 @@ class DbSchema {
   ///           `transactions.asset_kind`(저축/청약/투자 구분) 추가
   /// v8 -> v9: `transactions.ai_status`, `transactions.ai_processed_at`
   ///           (AI 분류 대기열. 실시간 LLM 호출을 없애고 일괄 처리로 옮겼다)
-  static const int databaseVersion = 9;
+  /// v9 -> v10: `card_account_links` 추가
+  ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
+  static const int databaseVersion = 10;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -329,6 +331,24 @@ class DbSchema {
   /// 조회에 성공했는지. 0이면 "찾지 못함" 을 캐시한 것이다.
   static const String bmFound = 'found';
 
+  // ------------------------------------------------------ card_account_links
+  /// 카드 이름 -> 계좌 연결.
+  ///
+  /// 알림은 `KB국민카드` 같은 **카드 이름**만 준다. 그 카드가 어느 계좌에서
+  /// 빠져나가는지는 앱이 알 수 없으므로 사용자가 한 번 지정한다.
+  /// 지정하면 이후 그 카드의 결제가 계좌 잔액에 자동 반영된다.
+  ///
+  /// 계좌 이름으로 추측하지 않는다. 틀리면 잔액이 조용히 어긋나고
+  /// 사용자가 알아채기 어렵다.
+  static const String tableCardAccountLinks = 'card_account_links';
+
+  /// 알림에서 읽은 카드 이름. 이것이 키다.
+  static const String calCardName = 'card_name';
+
+  /// 연결된 계좌. 계좌가 삭제되면 연결도 함께 사라진다.
+  static const String calAccountId = 'account_id';
+  static const String calCreatedAt = 'created_at';
+
   // ----------------------------------------------------------------- settings
   static const String tableSettings = 'settings';
   static const String sKey = 'key';
@@ -526,6 +546,14 @@ class DbSchema {
       $bmLookedUpAt INTEGER NOT NULL,
       $bmUserModified INTEGER NOT NULL DEFAULT 0,
       $bmFound INTEGER NOT NULL DEFAULT 1
+    )
+    ''',
+    '''
+    CREATE TABLE $tableCardAccountLinks (
+      $calCardName TEXT PRIMARY KEY,
+      $calAccountId INTEGER NOT NULL
+        REFERENCES $tableAccounts($acId) ON DELETE CASCADE,
+      $calCreatedAt INTEGER NOT NULL
     )
     ''',
     '''
@@ -824,6 +852,16 @@ class DbSchema {
       // 이 기능이 생기기 전에 모인 미분류 거래도 한 번에 정리할 수 있어야 한다.
       "UPDATE $tableTransactions SET $tAiStatus = 'pending' "
           'WHERE $tNeedsReview = 1',
+    ],
+    10: <String>[
+      '''
+      CREATE TABLE IF NOT EXISTS $tableCardAccountLinks (
+        $calCardName TEXT PRIMARY KEY,
+        $calAccountId INTEGER NOT NULL
+          REFERENCES $tableAccounts($acId) ON DELETE CASCADE,
+        $calCreatedAt INTEGER NOT NULL
+      )
+      ''',
     ],
   };
 }
