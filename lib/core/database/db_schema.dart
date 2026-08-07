@@ -734,7 +734,8 @@ class DbSchema {
   /// "얼마가 들어왔나"(= [incomeOnly])와 "얼마를 벌었나"(= 이 조건)는
   /// 다른 질문이다. 수입 통계는 후자에 답한다.
   static const String earnedIncomeOnly = '$incomeOnly AND $notCancelled '
-      "AND t.$tCategory != '${CategoryTaxonomy.settlementCategory}'";
+      "AND t.$tCategory != '${CategoryTaxonomy.settlementCategory}' "
+      "AND t.$tSubcategory != '${CategoryTaxonomy.nonIncomeSubcategory}'";
 
   /// **소비 지표에만 포함되는 거래** 조건.
   ///
@@ -755,7 +756,19 @@ class DbSchema {
   ///
   /// `processing` 은 포함하지 않는다. 처리 중인 것을 다시 집어 오면 같은
   /// 브랜드를 두 번 호출한다.
-  static const String aiPendingOnly = "t.$tAiStatus = 'pending'";
+  ///
+  /// **취소된 거래도 제외한다.** 통계에 들어가지 않는 거래를 분류하려고
+  /// LLM 을 부르는 것은 낭비다.
+  static const String aiPendingOnly =
+      "t.$tAiStatus = 'pending' AND $notCancelled";
+
+  /// 사용자에게 분류를 물어볼 거래 조건.
+  ///
+  /// **취소된 거래는 묻지 않는다.** 통계에서 빠지므로 어떻게 분류하든
+  /// 숫자가 달라지지 않는다. 물어봐야 답할 근거도 없다 — 취소 알림에는
+  /// 가맹점 이름조차 없다(`출금취소 3,400`).
+  static const String needsReviewOnly =
+      't.$tNeedsReview = 1 AND $notCancelled';
 
   /// 계좌 잔액에 더할 **부호 있는 금액**.
   ///

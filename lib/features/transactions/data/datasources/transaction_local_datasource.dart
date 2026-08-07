@@ -66,7 +66,7 @@ class TransactionLocalDataSource {
 
   Future<List<Map<String, Object?>>> findNeedingReview(int limit) {
     return _db.rawQuery(
-      '$_select WHERE t.${DbSchema.tNeedsReview} = 1 '
+      '$_select WHERE ${DbSchema.needsReviewOnly} '
       'ORDER BY t.${DbSchema.tPaymentDatetime} ASC LIMIT ?',
       <Object?>[limit],
     );
@@ -446,7 +446,7 @@ class TransactionLocalDataSource {
   Future<int> countNeedingReview() async {
     return Sqflite.firstIntValue(
           await _db.rawQuery(
-            'SELECT COUNT(*) FROM $_t WHERE ${DbSchema.tNeedsReview} = 1',
+            'SELECT COUNT(*) FROM $_t t WHERE ${DbSchema.needsReviewOnly}',
           ),
         ) ??
         0;
