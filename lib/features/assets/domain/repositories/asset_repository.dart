@@ -13,6 +13,10 @@ abstract interface class AssetRepository {
     required String toAccount,
     required int amount,
     required DateTime transferredAt,
+
+    /// 돈이 들어가는 계좌. **이것이 있어야 그 계좌 잔액이 늘어난다.**
+    /// null 이면 추적하지 않는 곳으로 나간 것으로 본다.
+    int? toAccountId,
     String? note,
 
     /// 저축 / 청약 / 투자. 자산 통계에서 나눠 보여 주는 기준이다.

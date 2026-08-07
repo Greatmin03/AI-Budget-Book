@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/di/injector.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../transactions/domain/entities/transaction.dart';
+import '../../domain/entities/account.dart';
 import '../../domain/entities/asset_transfer.dart';
 
 /// 거래를 자산 이동(적금 납입 등)으로 표시하는 시트.
@@ -24,6 +25,12 @@ class _AssetTransferSheetState extends State<AssetTransferSheet> {
 
   AssetTransfer? _existing;
   List<String> _knownAccounts = const <String>[];
+
+  /// 등록된 계좌. 받는 곳을 여기서 고르면 그 계좌 잔액이 실제로 늘어난다.
+  List<Account> _accounts = const <Account>[];
+
+  /// 고른 받는 계좌. null 이면 추적하지 않는 곳으로 나간 것이다.
+  int? _toAccountId;
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -55,11 +62,20 @@ class _AssetTransferSheetState extends State<AssetTransferSheet> {
         await Injector.instance.assets.findByTransaction(id);
     final List<String> accounts =
         await Injector.instance.assets.knownAccounts();
+    final List<Account> registered = await Injector.instance.accounts.findAll();
     if (!mounted) return;
 
     setState(() {
       _existing = existing;
       _knownAccounts = accounts;
+      _accounts = registered;
+      // 이름이 정확히 같은 계좌가 있으면 미리 골라 둔다. 대부분의 경우
+      // 사용자가 한 번 더 고르지 않아도 된다.
+      _toAccountId = existing?.toAccountId ??
+          _accounts
+              .where((Account a) => a.name == widget.transaction.displayName)
+              .map((Account a) => a.id)
+              .firstOrNull;
       _kind = widget.transaction.assetKindValue ?? AssetKind.saving;
       _fromController.text = existing?.fromAccount ?? '입출금 계좌';
       // 적금 이름은 보통 가맹점명으로 들어온다.
@@ -83,6 +99,7 @@ class _AssetTransferSheetState extends State<AssetTransferSheet> {
         transactionId: id,
         fromAccount: _fromController.text,
         toAccount: _toController.text,
+        toAccountId: _toAccountId,
         amount: widget.transaction.amount.abs(),
         transferredAt: widget.transaction.paymentDatetime,
         note: _noteController.text.trim().isEmpty
@@ -224,6 +241,50 @@ class _AssetTransferSheetState extends State<AssetTransferSheet> {
                   hintText: '예: KB 청년미래적금',
                 ),
               ),
+
+              // 등록된 계좌를 고르면 그 계좌 잔액이 실제로 늘어난다.
+              // 이름만 적으면 나간 쪽만 줄고 받는 쪽은 늘지 않는다.
+              if (_accounts.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 10),
+                const _Label('어느 계좌로 들어가나요?'),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    for (final Account account in _accounts)
+                      ChoiceChip(
+                        label: Text(
+                          account.name,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        selected: _toAccountId == account.id,
+                        onSelected: (_) => setState(() {
+                          _toAccountId = account.id;
+                          _toController.text = account.name;
+                        }),
+                      ),
+                    ChoiceChip(
+                      label: const Text(
+                        '등록 안 된 곳',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      selected: _toAccountId == null,
+                      onSelected: (_) => setState(() => _toAccountId = null),
+                    ),
+                  ],
+                ),
+                if (_toAccountId == null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  Text(
+                    '받는 계좌를 고르지 않으면 나간 계좌만 줄어듭니다.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
 
               // 이전에 쓴 계좌 이름을 빠르게 넣을 수 있게 한다.
               if (_knownAccounts.isNotEmpty) ...<Widget>[

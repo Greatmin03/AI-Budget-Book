@@ -29,6 +29,7 @@ class AssetRepositoryImpl implements AssetRepository {
     required String toAccount,
     required int amount,
     required DateTime transferredAt,
+    int? toAccountId,
     String? note,
     AssetKind kind = AssetKind.saving,
   }) async {
@@ -48,6 +49,7 @@ class AssetRepositoryImpl implements AssetRepository {
         DbSchema.atTransactionId: transactionId,
         DbSchema.atFromAccount: fromAccount.trim(),
         DbSchema.atToAccount: toAccount.trim(),
+        DbSchema.atToAccountId: toAccountId,
         DbSchema.atAmount: amount,
         DbSchema.atTransferredAt: transferredAt.millisecondsSinceEpoch,
         DbSchema.atNote: note,
@@ -68,13 +70,15 @@ class AssetRepositoryImpl implements AssetRepository {
     });
 
     AppLogger.i('자산 이동 표시(${kind.label}): $fromAccount -> $toAccount '
-        '$amount원 (거래 $transactionId, 소비 통계 제외)');
+        '$amount원 (거래 $transactionId, 소비 통계 제외)'
+        '${toAccountId == null ? ' — 받는 계좌 미지정, 잔액 반영 안 됨' : ''}');
     _notify();
 
     return AssetTransfer(
       transactionId: transactionId,
       fromAccount: fromAccount.trim(),
       toAccount: toAccount.trim(),
+      toAccountId: toAccountId,
       amount: amount,
       transferredAt: transferredAt,
       note: note,
@@ -226,6 +230,7 @@ class AssetRepositoryImpl implements AssetRepository {
       transactionId: row[DbSchema.atTransactionId] as int?,
       fromAccount: (row[DbSchema.atFromAccount] as String?) ?? '',
       toAccount: (row[DbSchema.atToAccount] as String?) ?? '',
+      toAccountId: row[DbSchema.atToAccountId] as int?,
       amount: (row[DbSchema.atAmount] as int?) ?? 0,
       transferredAt: DateTime.fromMillisecondsSinceEpoch(
         (row[DbSchema.atTransferredAt] as int?) ?? 0,

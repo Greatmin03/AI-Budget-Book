@@ -2,6 +2,7 @@ import 'package:budget_book/core/constants/classification_source.dart';
 import 'package:budget_book/core/database/db_schema.dart';
 import 'package:budget_book/core/utils/date_range.dart';
 import 'package:budget_book/features/assets/data/repositories/account_repository_impl.dart';
+import 'package:budget_book/features/assets/data/repositories/asset_repository_impl.dart';
 import 'package:budget_book/features/assets/domain/entities/account.dart';
 import 'package:budget_book/features/parsing/domain/entities/parsed_payment.dart';
 import 'package:budget_book/features/transactions/data/models/transaction_dto.dart';
@@ -20,6 +21,7 @@ void main() {
 
   late Database db;
   late AccountRepositoryImpl accounts;
+  late AssetRepositoryImpl assets;
 
   /// 기준 시각. 계좌를 만든 시점으로 쓴다.
   final DateTime base = DateTime(2026, 8, 1, 9);
@@ -38,6 +40,7 @@ void main() {
       },
     );
     accounts = AccountRepositoryImpl(db);
+    assets = AssetRepositoryImpl(db);
   });
 
   tearDown(() async => db.close());
@@ -132,7 +135,7 @@ void main() {
       expect((await reload(account.id!)).currentBalance, 1285000);
     });
 
-    test('자산 이동은 잔액을 바꾸지 않는다 (총자산 불변)', () async {
+    test('자산 이동은 나간 계좌에서 빠진다', () async {
       final Account account = await addAccount(name: 'KB', balance: 1000000);
       await addTransaction(
         amount: 500000,
@@ -141,11 +144,61 @@ void main() {
         assetKind: 'saving',
       );
 
-      expect(
-        (await reload(account.id!)).currentBalance,
-        1000000,
-        reason: '적금 납입은 내 계좌 사이 이동이므로 총자산이 줄지 않는다',
+      // 적금에 넣었으면 입출금 계좌에서는 실제로 빠져나간 것이다.
+      // 여기를 0으로 두면 "옮겼는데 잔액이 그대로" 가 된다.
+      expect((await reload(account.id!)).currentBalance, 500000);
+    });
+
+    test('받는 계좌를 지정하면 그만큼 늘고 총자산은 그대로다', () async {
+      final Account from = await addAccount(name: 'KB', balance: 1000000);
+      final Account to = await addAccount(
+        name: '청년미래적금',
+        balance: 0,
+        type: AccountType.savings,
       );
+
+      final int txId = await addTransaction(
+        amount: 500000,
+        accountId: from.id,
+        isAssetTransfer: true,
+        assetKind: 'saving',
+      );
+      await assets.markTransaction(
+        transactionId: txId,
+        fromAccount: 'KB',
+        toAccount: '청년미래적금',
+        toAccountId: to.id,
+        amount: 500000,
+        transferredAt: DateTime(2026, 8, 10, 12),
+      );
+
+      expect((await reload(from.id!)).currentBalance, 500000);
+      expect((await reload(to.id!)).currentBalance, 500000);
+
+      // 총자산이 안 변하는 것은 받는 계좌가 늘어서지, 나간 계좌가 안 줄어서가
+      // 아니다.
+      expect((await accounts.overview()).totalAssets, 1000000);
+    });
+
+    test('받는 계좌를 지정하지 않으면 나간 쪽만 줄어든다', () async {
+      final Account from = await addAccount(name: 'KB', balance: 1000000);
+      final int txId = await addTransaction(
+        amount: 500000,
+        accountId: from.id,
+        isAssetTransfer: true,
+        assetKind: 'saving',
+      );
+      await assets.markTransaction(
+        transactionId: txId,
+        fromAccount: 'KB',
+        toAccount: '외부 적금',
+        amount: 500000,
+        transferredAt: DateTime(2026, 8, 10, 12),
+      );
+
+      // 추적하지 않는 곳으로 나갔다. 내 자산에서는 실제로 줄어든 것이 맞다.
+      expect((await reload(from.id!)).currentBalance, 500000);
+      expect((await accounts.overview()).totalAssets, 500000);
     });
 
     test('취소 거래(음수)는 잔액을 되돌린다', () async {

@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v13** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v14** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 13`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 14`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -358,6 +358,20 @@ settlements  statistics  transactions
     `식비/기타` 가 되는 경우다. 매핑에는 "성공" 했지만 정보가 사라졌고,
     사용자가 겪는 "식비 하나로만 들어간다" 가 바로 이것이다.
 - 설정 > 개발자 > 분류 진단 (`kDebugMode` 에서만 보인다)
+
+#### v14 — 자산 이동이 계좌 잔액에 반영된다
+- **추가 컬럼**: `asset_transfers.to_account_id`
+- 그전까지 `balanceDeltaExpr` 이 자산 이동을 **0** 으로 두었다. 총자산이 변하지
+  않는다는 이유였는데, 그러면 **계좌별로는 틀린다** — 입출금에서 적금으로
+  100,000원을 옮겨도 입출금 잔액이 그대로였다.
+- 총자산이 안 변하는 것은 **받는 계좌가 그만큼 늘기 때문**이지, 나간 계좌가
+  안 줄어서가 아니다. 이제 나간 계좌는 `-amount`, 받는 계좌는
+  `asset_transfers.to_account_id` 로 `+amount`.
+- **이름이 아니라 id 로 잇는다.** `to_account` 는 표시용이다. 이름 매칭은
+  계좌 이름을 바꾼 순간 잔액이 조용히 어긋난다(`account_id` 와 같은 이유).
+- **데이터 마이그레이션은 없다.** 옛 기록에는 이름만 있어 채울 수 없다.
+  `to_account_id` 가 null 이면 나간 쪽만 반영된다(추적하지 않는 곳으로 나간
+  것과 같다). 필요하면 거래를 열어 받는 계좌를 다시 고르면 된다.
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 
@@ -859,7 +873,7 @@ RecordPaymentNotification (파싱 → 분류 → 저장)
 | 소비 통계 | ❌ (`spendingOnly`) |
 | 현금 흐름 | ✅ |
 | 자산 현황 | ✅ (자산으로 쌓인다) |
-| 계좌 잔액 | ❌ 0 (총자산 불변) |
+| 계좌 잔액 | ✅ 나간 계좌 `-`, 받는 계좌 `+` (합계는 불변) |
 
 **알림으로 수집된 거래는 카드 이름만 안다.** `account_id` 가 없으면 잔액에 잡히지 않으므로
 `card_account_links` 로 카드를 계좌에 한 번 연결한다. 연결하는 순간 **과거 거래에 소급 적용**되고

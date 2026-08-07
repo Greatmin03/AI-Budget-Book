@@ -6,6 +6,7 @@ class AssetTransfer {
   const AssetTransfer({
     required this.fromAccount,
     required this.toAccount,
+    this.toAccountId,
     required this.amount,
     required this.transferredAt,
     this.id,
@@ -24,6 +25,11 @@ class AssetTransfer {
 
   /// 받는 곳. 예: `KB 청년미래적금`
   final String toAccount;
+
+  /// 돈이 들어간 계좌. null 이면 추적하지 않는 곳이다.
+  ///
+  /// [toAccount] 는 표시용 문자열이고, 잔액 반영은 이 값으로 판단한다.
+  final int? toAccountId;
 
   /// 이동 금액. 항상 양수.
   final int amount;

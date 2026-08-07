@@ -29,9 +29,11 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
+  /// v13 -> v14: `asset_transfers.to_account_id` 추가
+  ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
   /// v12 -> v13: `unmapped_place_categories` 추가
   ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
-  static const int databaseVersion = 13;
+  static const int databaseVersion = 14;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -265,7 +267,15 @@ class DbSchema {
   static const String atFromAccount = 'from_account';
 
   /// 받는 곳. 예: `KB 청년미래적금`
+  ///
+  /// **표시용 문자열이다.** 잔액 반영 대상은 [atToAccountId] 로 판단한다.
   static const String atToAccount = 'to_account';
+
+  /// 돈이 들어가는 계좌. null 이면 추적하지 않는 곳으로 나간 것이다.
+  ///
+  /// 이름이 아니라 id 로 잇는 이유는 [tAccountId] 와 같다 — 이름만으로
+  /// 매칭하면 계좌 이름을 바꾼 순간 잔액이 조용히 어긋난다.
+  static const String atToAccountId = 'to_account_id';
   static const String atAmount = 'amount';
   static const String atTransferredAt = 'transferred_at';
   static const String atNote = 'note';
@@ -522,6 +532,8 @@ class DbSchema {
         REFERENCES $tableTransactions($tId) ON DELETE CASCADE,
       $atFromAccount TEXT NOT NULL,
       $atToAccount TEXT NOT NULL,
+      $atToAccountId INTEGER
+        REFERENCES $tableAccounts($acId) ON DELETE SET NULL,
       $atAmount INTEGER NOT NULL,
       $atTransferredAt INTEGER NOT NULL,
       $atNote TEXT,
@@ -706,16 +718,19 @@ class DbSchema {
   ///
   ///  - 수입: `+`
   ///  - 지출: `-` (취소 거래는 `amount` 가 음수이므로 자동으로 환불이 된다)
-  ///  - 자산 이동: `0`
+  ///  - 자산 이동: `-` (**나간 계좌에서는 실제로 빠져나간다**)
   ///
-  /// 자산 이동을 0으로 두는 이유는 총자산이 변하지 않기 때문이다.
-  /// 적금 납입은 입출금 계좌에서 적금 계좌로 옮긴 것이므로 합계가 같다.
+  /// 자산 이동을 0으로 두었던 적이 있다. 총자산이 변하지 않는다는 이유였는데,
+  /// 그러면 **계좌별로는 틀린다** — 입출금에서 적금으로 100,000원을 옮겨도
+  /// 입출금 잔액이 그대로였다.
+  ///
+  /// 총자산이 안 변하는 것은 받는 계좌가 그만큼 늘기 때문이지, 나간 계좌가
+  /// 안 줄어서가 아니다. 받는 쪽은 `asset_transfers.to_account_id` 로 더한다.
   ///
   /// **정산 차감(`netAmountExpr`)을 쓰지 않고 `amount` 를 쓴다.**
   /// 카드에서 빠져나간 금액은 정산과 무관하게 원래 금액이고, 돌려받은 돈은
   /// 입금으로 따로 들어온다. net 을 쓰면 환급이 두 번 반영된다.
   static const String balanceDeltaExpr = 'CASE '
-      'WHEN t.$tIsAssetTransfer = 1 THEN 0 '
       "WHEN t.$tDirection = 'income' THEN t.$tAmount "
       'ELSE -t.$tAmount END';
 
@@ -957,6 +972,13 @@ class DbSchema {
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
       )
       ''',
+    ],
+    14: <String>[
+      // 자산 이동이 계좌 잔액에 반영되기 시작했다. 어느 계좌로 들어갔는지
+      // 알아야 한다. 옛 기록에는 이름만 있어서 채울 수 없다 — null 로 두면
+      // 그 이동은 나간 쪽만 반영된다(추적하지 않는 곳으로 나간 것과 같다).
+      'ALTER TABLE $tableAssetTransfers ADD COLUMN $atToAccountId INTEGER '
+          'REFERENCES $tableAccounts($acId) ON DELETE SET NULL',
     ],
     13: <String>[
       '''

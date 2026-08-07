@@ -98,7 +98,7 @@ class AccountRepositoryImpl implements AccountRepository {
     );
 
     // 계좌별 거래 합을 한 번에 가져와 붙인다(계좌마다 쿼리하지 않는다).
-    final Map<int, int> deltas = await _transactionDeltas();
+    final Map<int, int> deltas = await _accountDeltas();
 
     return rows.map((Map<String, Object?> row) {
       final Account account = _fromRow(row);
@@ -109,7 +109,43 @@ class AccountRepositoryImpl implements AccountRepository {
     }).toList();
   }
 
-  /// 계좌 id -> 기준 시각 이후 거래 합(수입 +, 지출 -, 자산 이동 0).
+  /// 계좌 id -> 기준 시각 이후의 잔액 변화 전부.
+  ///
+  /// 두 갈래를 합친다.
+  ///  - 거래(`transactions`) — 수입 +, 지출/자산이동 -
+  ///  - **들어온 자산 이동**(`asset_transfers.to_account_id`) — +
+  ///
+  /// 두 번째가 없으면 적금 계좌는 영원히 0원이다. 나간 계좌만 줄고 받는
+  /// 계좌는 늘지 않아 총자산이 조용히 감소한다.
+  Future<Map<int, int>> _accountDeltas() async {
+    final Map<int, int> deltas = await _transactionDeltas();
+    final Map<int, int> incoming = await _incomingTransferDeltas();
+
+    for (final MapEntry<int, int> entry in incoming.entries) {
+      deltas[entry.key] = (deltas[entry.key] ?? 0) + entry.value;
+    }
+    return deltas;
+  }
+
+  /// 계좌 id -> 기준 시각 이후 **들어온** 자산 이동 합.
+  Future<Map<int, int>> _incomingTransferDeltas() async {
+    final List<Map<String, Object?>> rows = await _db.rawQuery(
+      'SELECT tr.${DbSchema.atToAccountId} AS account_id, '
+      'COALESCE(SUM(tr.${DbSchema.atAmount}), 0) AS delta '
+      'FROM ${DbSchema.tableAssetTransfers} tr '
+      'JOIN $_table a ON a.${DbSchema.acId} = tr.${DbSchema.atToAccountId} '
+      'WHERE tr.${DbSchema.atTransferredAt} >= a.${DbSchema.acBalanceAsOf} '
+      'GROUP BY tr.${DbSchema.atToAccountId}',
+    );
+
+    return <int, int>{
+      for (final Map<String, Object?> row in rows)
+        if (row['account_id'] is int)
+          row['account_id']! as int: _int(row['delta']),
+    };
+  }
+
+  /// 계좌 id -> 기준 시각 이후 거래 합(수입 +, 지출/자산 이동 -).
   ///
   /// 기준 시각 비교를 SQL 안에서 하므로, 계좌마다 다른 기준 시각이 그대로
   /// 반영된다. 잔액을 따로 저장하지 않기 때문에 어긋날 수가 없다.
@@ -146,6 +182,33 @@ class AccountRepositoryImpl implements AccountRepository {
         if (accountId != null) accountId,
       ],
     );
+
+    // 자산 이동은 나간 계좌에서 빠지므로, 받는 쪽을 더하지 않으면 총자산이
+    // 줄어든 것처럼 보인다. 적금에 넣은 돈은 사라진 돈이 아니다.
+    return _int(rows.isEmpty ? null : rows.first['delta']) +
+        await _incomingTransfersInRange(range, accountId: accountId);
+  }
+
+  /// 기간 내 **들어온** 자산 이동 합.
+  Future<int> _incomingTransfersInRange(
+    DateRange range, {
+    int? accountId,
+  }) async {
+    final String accountFilter =
+        accountId == null ? '' : ' AND tr.${DbSchema.atToAccountId} = ?';
+
+    final List<Map<String, Object?>> rows = await _db.rawQuery(
+      'SELECT COALESCE(SUM(tr.${DbSchema.atAmount}), 0) AS delta '
+      'FROM ${DbSchema.tableAssetTransfers} tr '
+      'WHERE tr.${DbSchema.atToAccountId} IS NOT NULL '
+      'AND tr.${DbSchema.atTransferredAt} >= ? '
+      'AND tr.${DbSchema.atTransferredAt} < ?$accountFilter',
+      <Object?>[
+        range.startMillis,
+        range.endExclusiveMillis,
+        if (accountId != null) accountId,
+      ],
+    );
     return _int(rows.isEmpty ? null : rows.first['delta']);
   }
 
@@ -161,7 +224,7 @@ class AccountRepositoryImpl implements AccountRepository {
 
     // findAll 과 같은 값을 돌려줘야 한다. 거래 반영분을 빼면 화면마다 잔액이
     // 달라진다.
-    final Map<int, int> deltas = await _transactionDeltas();
+    final Map<int, int> deltas = await _accountDeltas();
     return _fromRow(rows.first).copyWith(transactionDelta: deltas[id] ?? 0);
   }
 
