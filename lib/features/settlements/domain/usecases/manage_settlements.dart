@@ -247,6 +247,17 @@ class LinkDepositToTransaction {
     await _deposits.updateStatus(id, DepositStatus.ignored);
   }
 
+  /// 내렸던 입금을 다시 후보로 올린다.
+  ///
+  /// 목록에서 내리는 버튼은 한 번만 누르면 되고 확인도 없다. 잘못 누르는
+  /// 일이 실제로 생기므로 되돌릴 수 있어야 한다.
+  Future<void> restore(Deposit deposit) async {
+    final int? id = deposit.id;
+    if (id == null) return;
+    await _deposits.updateStatus(id, DepositStatus.pending);
+    AppLogger.i('입금 되돌리기: ${deposit.counterparty} +${deposit.amount}원');
+  }
+
   /// **연결을 되돌린다.**
   ///
   /// 잘못 연결하는 일은 반드시 생긴다. 되돌릴 수 없으면 사용자는 틀린 숫자를

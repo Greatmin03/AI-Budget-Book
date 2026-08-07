@@ -23,6 +23,9 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
 
   /// 이미 연결한 입금. 잘못 연결한 것을 되돌리는 유일한 경로다.
   List<Deposit> _linked = const <Deposit>[];
+
+  /// "정산이 아님" 으로 내린 입금. 잘못 눌렀을 때 되돌리는 곳이다.
+  List<Deposit> _ignored = const <Deposit>[];
   bool _isLoading = true;
 
   @override
@@ -38,10 +41,13 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
           await Injector.instance.deposits.findPending();
       final List<Deposit> linked =
           await Injector.instance.deposits.findLinked();
+      final List<Deposit> ignored =
+          await Injector.instance.deposits.findIgnored();
       if (!mounted) return;
       setState(() {
         _deposits = items;
         _linked = linked;
+        _ignored = ignored;
         _isLoading = false;
       });
     } on Object catch (e, stack) {
@@ -111,6 +117,24 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
   Future<void> _ignore(Deposit deposit) async {
     await Injector.instance.linkDeposit.ignore(deposit);
     await _load();
+    if (!mounted) return;
+
+    // 확인 없이 한 번에 내려가는 버튼이다. 바로 되돌릴 수 있어야 한다.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${deposit.counterparty} 입금을 목록에서 내렸습니다.'),
+        action: SnackBarAction(
+          label: '실행취소',
+          onPressed: () => _restore(deposit),
+        ),
+      ),
+    );
+  }
+
+  /// 내렸던 입금을 다시 후보로 올린다.
+  Future<void> _restore(Deposit deposit) async {
+    await Injector.instance.linkDeposit.restore(deposit);
+    await _load();
   }
 
   /// 연결을 되돌린다.
@@ -176,7 +200,7 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : (_deposits.isEmpty && _linked.isEmpty)
+          : (_deposits.isEmpty && _linked.isEmpty && _ignored.isEmpty)
               ? _buildEmpty(context)
               : RefreshIndicator(
                   onRefresh: _load,
@@ -205,9 +229,38 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
                           const Divider(height: 1),
                         ],
                       ],
+                      // 내린 것도 보여 준다. ✕ 는 확인 없이 한 번에
+                      // 눌리므로 잘못 누르는 일이 실제로 생긴다.
+                      if (_ignored.isNotEmpty) ...<Widget>[
+                        _buildIgnoredHeader(context),
+                        for (final Deposit deposit in _ignored) ...<Widget>[
+                          _IgnoredTile(
+                            deposit: deposit,
+                            onRestore: () => _restore(deposit),
+                          ),
+                          const Divider(height: 1),
+                        ],
+                      ],
                     ],
                   ),
                 ),
+    );
+  }
+
+  Widget _buildIgnoredHeader(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: scheme.surfaceContainerLow,
+      child: Text(
+        '정산이 아님으로 내린 입금 ${_ignored.length}건\n'
+        '잘못 눌렀다면 되돌릴 수 있습니다.',
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.5,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
     );
   }
 
@@ -581,6 +634,52 @@ class _LinkedTile extends StatelessWidget {
             ),
           ),
           TextButton(onPressed: onUnlink, child: const Text('해제')),
+        ],
+      ),
+    );
+  }
+}
+
+/// "정산이 아님" 으로 내린 입금. 되돌릴 수 있다.
+class _IgnoredTile extends StatelessWidget {
+  const _IgnoredTile({required this.deposit, required this.onRestore});
+
+  final Deposit deposit;
+  final VoidCallback onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(Icons.visibility_off_outlined,
+          size: 20, color: scheme.outline),
+      title: Text(
+        deposit.counterparty,
+        style: TextStyle(
+          fontWeight: FontWeight.w600,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+      subtitle: Text(
+        <String>[
+          Formatters.monthDay(deposit.depositedAt),
+          Formatters.time(deposit.depositedAt),
+          if (deposit.bankName != null) deposit.bankName!,
+        ].join(' · '),
+        style: const TextStyle(fontSize: 11),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            '+${Formatters.won(deposit.amount)}',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: scheme.outline,
+            ),
+          ),
+          TextButton(onPressed: onRestore, child: const Text('되돌리기')),
         ],
       ),
     );

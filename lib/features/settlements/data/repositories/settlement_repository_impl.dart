@@ -167,6 +167,13 @@ class DepositRepositoryImpl implements DepositRepository {
   }
 
   @override
+  Future<List<Deposit>> findIgnored({int limit = 50}) async {
+    final List<Map<String, Object?>> rows =
+        await _local.findByStatus(DepositStatus.ignored.name, limit);
+    return rows.map(_fromRow).toList();
+  }
+
+  @override
   Future<int> countPending() =>
       _local.countByStatus(DepositStatus.pending.name);
 

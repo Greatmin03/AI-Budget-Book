@@ -579,4 +579,51 @@ void main() {
       expect((await transactions.findById(payment.id!))!.amount, 30000);
     });
   });
+
+  group('"정산이 아님" 을 잘못 눌렀을 때', () {
+    Future<Deposit> ignored() async {
+      await record(transferIn(20000));
+      final Deposit deposit = (await deposits.findPending()).single;
+      await linkDeposit.ignore(deposit);
+      return deposit;
+    }
+
+    test('내려도 수입 거래는 그대로 남는다', () async {
+      final Deposit deposit = await ignored();
+
+      // 돈이 사라지는 것이 아니다. 정산 후보에서만 내려간다.
+      final Transaction? income =
+          await transactions.findById(deposit.transactionId!);
+      expect(income, isNotNull);
+      expect(await stats().incomeTotalInRange(august), 20000);
+    });
+
+    test('내린 목록에서 찾을 수 있다', () async {
+      final Deposit deposit = await ignored();
+
+      expect(await deposits.countPending(), 0);
+      final List<Deposit> hidden = await deposits.findIgnored();
+      expect(hidden.map((Deposit d) => d.id), contains(deposit.id));
+    });
+
+    test('되돌리면 다시 후보가 된다', () async {
+      final Deposit deposit = await ignored();
+
+      await linkDeposit.restore(deposit);
+
+      expect(await deposits.countPending(), 1);
+      expect(await deposits.findIgnored(), isEmpty);
+    });
+
+    test('되돌린 뒤 정상적으로 연결된다', () async {
+      final Transaction payment = await payForEveryone();
+      final Deposit deposit = await ignored();
+
+      await linkDeposit.restore(deposit);
+      final Deposit again = (await deposits.findPending()).single;
+      await linkDeposit.link(deposit: again, transaction: payment);
+
+      expect((await transactions.findById(payment.id!))!.netAmount, 10000);
+    });
+  });
 }

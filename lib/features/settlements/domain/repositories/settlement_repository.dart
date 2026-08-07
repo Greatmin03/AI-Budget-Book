@@ -38,6 +38,11 @@ abstract interface class DepositRepository {
   /// 이미 거래에 연결된 입금(최신순). 연결을 되돌릴 때 쓴다.
   Future<List<Deposit>> findLinked({int limit = 50});
 
+  /// "정산이 아님" 으로 내린 입금.
+  ///
+  /// 잘못 눌러 내리는 일이 실제로 생긴다. 보이지 않으면 되돌릴 수 없다.
+  Future<List<Deposit>> findIgnored({int limit = 50});
+
   Future<int> countPending();
 
   Future<Deposit?> findById(int id);
