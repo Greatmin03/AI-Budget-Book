@@ -1,3 +1,4 @@
+import '../../../../core/constants/app_categories.dart';
 import '../../../../core/constants/classification_source.dart';
 import '../../../../core/logging/app_logger.dart';
 import '../../../../core/utils/text_normalizer.dart';
@@ -157,7 +158,7 @@ class RecordPaymentNotification {
         );
         return IngestFailed(reason);
 
-      // 입금은 지출이 아니다. 거래로 만들지 않고 정산 후보로만 남긴다.
+      // 입금은 지출이 아니다. 수입 거래 + 정산 후보로 남긴다.
       case ParseDepositOutcome(:final ParsedDeposit deposit):
         return _recordDeposit(deposit);
 
@@ -166,11 +167,21 @@ class RecordPaymentNotification {
     }
   }
 
-  /// 입금 알림을 정산 후보로 저장한다.
+  /// 입금 알림을 **수입 거래 + 정산 후보**로 저장한다.
   ///
   /// **브랜드 학습은 하지 않는다.** `홍길동` 은 브랜드가 아니다.
   /// 역할을 분리해 두면 이름을 오염 없이 정산 매칭에만 쓸 수 있다.
   Future<IngestResult> _recordDeposit(ParsedDeposit parsed) async {
+    final String fingerprint = Deposit.buildFingerprint(
+      counterparty: parsed.counterparty,
+      amount: parsed.amount,
+      depositedAt: parsed.depositedAt,
+    );
+
+    // 수입 거래를 먼저 만든다. 실패하면 입금만 남기고 계속 간다 —
+    // 통계에 안 잡히는 것보다 기록이 아예 없는 쪽이 나쁘다.
+    final int? incomeId = await _recordIncome(parsed, fingerprint);
+
     final Deposit? saved = await _deposits.insert(
       Deposit(
         counterparty: parsed.counterparty,
@@ -179,11 +190,8 @@ class RecordPaymentNotification {
         rawNotification: parsed.rawNotification,
         sourcePackage: parsed.sourcePackage,
         bankName: parsed.bankName,
-        fingerprint: Deposit.buildFingerprint(
-          counterparty: parsed.counterparty,
-          amount: parsed.amount,
-          depositedAt: parsed.depositedAt,
-        ),
+        fingerprint: fingerprint,
+        transactionId: incomeId,
       ),
     );
 
@@ -193,6 +201,46 @@ class RecordPaymentNotification {
       counterparty: parsed.counterparty,
       amount: parsed.amount,
     );
+  }
+
+  /// 입금을 **수입 거래**로도 남긴다.
+  ///
+  /// 예전에는 입금을 `deposits` 에만 넣었다. 정산 후보로만 볼 생각이었는데,
+  /// 그 결과 **월급도 용돈도 수입 통계에 잡히지 않았다.** 들어온 돈이 어디에도
+  /// 보이지 않으면 가계부가 아니다.
+  ///
+  /// 분류는 정하지 않는다. 월급인지 정산인지는 보낸 사람 이름만으로 알 수 없고,
+  /// 틀린 분류를 굳혀 두면 통계가 조용히 어긋난다. `needsReview` 로 올려
+  /// 사용자가 한 번 고르게 한다.
+  ///
+  /// **브랜드 학습은 하지 않는다.** `홍길동` 은 브랜드가 아니다.
+  Future<int?> _recordIncome(ParsedDeposit parsed, String depositKey) async {
+    try {
+      final Transaction? saved = await _transactions.insert(
+        Transaction(
+          merchantRaw: parsed.counterparty,
+          brand: parsed.counterparty,
+          amount: parsed.amount,
+          direction: TransactionDirection.income,
+          category: CategoryTaxonomy.etcCategory,
+          subcategory: '미분류',
+          // 입금 수단은 알 수 없다. 카드 결제가 아닌 것만 확실하다.
+          method: PaymentMethodKind.unknown,
+          account: parsed.bankName,
+          paymentDatetime: parsed.depositedAt,
+          rawNotification: parsed.rawNotification,
+          sourcePackage: parsed.sourcePackage,
+          // 입금과 같은 키를 써야 한쪽만 중복 저장되는 일이 없다.
+          fingerprint: 'deposit|$depositKey',
+          classificationSource: ClassificationSource.pending,
+          needsReview: true,
+        ),
+      );
+      return saved?.id;
+    } on Object catch (e, stack) {
+      AppLogger.e('입금 수입 거래 저장 실패', e, stack);
+      return null;
+    }
   }
 
   Future<IngestResult> _process(ParsedPayment payment) async {

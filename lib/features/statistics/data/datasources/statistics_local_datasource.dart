@@ -38,9 +38,13 @@ class StatisticsLocalDataSource {
   static const String _rangeExpenseWhere =
       '$_rangeOnlyWhere AND ${DbSchema.expenseOnly}';
 
-  /// 기간 + **들어오는 돈만**.
+  /// 기간 + **번 돈만**.
+  ///
+  /// 정산(돌려받은 돈)은 뺀다. 더치페이로 친구가 보낸 20,000원은 소득이
+  /// 아니다 — 이미 그 결제의 정산으로 내 부담이 줄어 있으므로, 수입으로도
+  /// 세면 같은 돈을 두 번 세게 된다.
   static const String _rangeIncomeWhere =
-      '$_rangeOnlyWhere AND ${DbSchema.incomeOnly}';
+      '$_rangeOnlyWhere AND ${DbSchema.earnedIncomeOnly}';
 
   List<Object?> _rangeArgs(DateRange range) =>
       <Object?>[range.startMillis, range.endExclusiveMillis];

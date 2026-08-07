@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v10** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v11** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 10`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 11`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -248,6 +248,7 @@ settlements  statistics  transactions
 | `accounts` | 자산 계좌와 **기준** 잔액 | 현재 잔액은 파생값 |
 | `account_snapshots` | 잔액 추이 기록 | |
 | `card_account_links` | 카드 이름 → 계좌 | 알림 거래를 잔액에 반영하는 다리 |
+| `deposits.transaction_id` | 입금 → 그 입금이 만든 수입 거래 | 정산 확정 시 분류를 옮기는 고리 |
 | `notification_sources` | 수집 대상 앱 | 원본은 여기, 네이티브는 캐시 |
 | `brand_metadata` | 브랜드 업종/분류 캐시 | **못 찾음도 저장** |
 | `settings` | key-value 설정 | |
@@ -321,6 +322,15 @@ settlements  statistics  transactions
 - **계좌 이름으로 짐작하지 않는다.** `KB국민카드` 와 `KB 입출금` 이 비슷하다고 이어 붙이면,
   틀렸을 때 잔액이 조용히 어긋나고 사용자가 알아챌 방법이 없다. 사용자가 한 번 지정한다.
 - 데이터 마이그레이션은 없다. 연결은 사용자가 만드는 값이라 추측해서 채울 수 없다.
+
+#### v11 — 입금을 수입으로
+- **추가 컬럼**: `deposits.transaction_id` (그 입금으로 만들어진 수입 거래)
+- 그전까지 입금 알림은 `deposits` 에만 들어갔다. 통계는 `transactions` 만 읽으므로
+  **월급도 용돈도 수입 통계에 잡히지 않았다.** 이제 입금은 두 곳에 남는다 —
+  정산 후보(`deposits`)와 수입 거래(`transactions`).
+- 정산으로 확정되면 그 수입 거래를 `정산` 분류로 옮긴다. 돌려받은 돈은 번 돈이 아니다.
+  이미 원결제의 `settlements` 로 부담이 줄었으므로 수입으로도 세면 두 번 세는 것이다.
+- 데이터 마이그레이션은 없다. 옛 입금에는 연결이 없고(`NULL`), 그 경우 분류 이동만 건너뛴다.
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 

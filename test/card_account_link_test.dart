@@ -26,6 +26,8 @@ import 'package:budget_book/features/transactions/domain/entities/transaction.da
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
+import 'support/legacy_schema.dart';
+
 /// 카드 -> 계좌 연결.
 ///
 /// 알림으로 들어온 거래에는 `account_id` 가 없다. 이 연결이 없으면 결제가
@@ -349,17 +351,13 @@ void main() {
           await Directory.systemTemp.createTemp('card_link_upgrade');
       final String path = '${dir.path}/budget.db';
 
-      // v10 이 없던 시절의 DB. 마지막 이관(v10)만 빼고 만든다.
+      // v10 이 없던 시절의 DB.
+      const int beforeCardLinks = 9;
       final Database old = await openDatabase(
         path,
-        version: DbSchema.databaseVersion - 1,
-        onCreate: (Database db, int version) async {
-          for (final String statement in DbSchema.createStatements) {
-            if (!statement.contains(DbSchema.tableCardAccountLinks)) {
-              await db.execute(statement);
-            }
-          }
-        },
+        version: beforeCardLinks,
+        onCreate: (Database db, int version) =>
+            LegacySchema.createAt(db, beforeCardLinks),
       );
       final int now = DateTime.now().millisecondsSinceEpoch;
       await old.insert(DbSchema.tableAccounts, <String, Object?>{
@@ -376,13 +374,7 @@ void main() {
       final Database upgraded = await openDatabase(
         path,
         version: DbSchema.databaseVersion,
-        onUpgrade: (Database db, int from, int to) async {
-          for (int v = from + 1; v <= to; v++) {
-            for (final String statement in DbSchema.migrations[v] ?? const <String>[]) {
-              await db.execute(statement);
-            }
-          }
-        },
+        onUpgrade: LegacySchema.upgrade,
       );
 
       final List<Map<String, Object?>> kept =

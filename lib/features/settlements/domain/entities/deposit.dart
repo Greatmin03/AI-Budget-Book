@@ -15,6 +15,7 @@ class Deposit {
     this.sourcePackage,
     this.bankName,
     this.status = DepositStatus.pending,
+    this.transactionId,
     this.createdAt,
   });
 
@@ -32,11 +33,15 @@ class Deposit {
   final String? sourcePackage;
   final String? bankName;
   final DepositStatus status;
+
+  /// 이 입금으로 만들어진 수입 거래. 정산으로 확정되면 이 거래를 `정산`
+  /// 분류로 옮겨 수입 통계에서 뺀다.
+  final int? transactionId;
   final DateTime? createdAt;
 
   bool get isPending => status == DepositStatus.pending;
 
-  Deposit copyWith({int? id, DepositStatus? status}) {
+  Deposit copyWith({int? id, DepositStatus? status, int? transactionId}) {
     return Deposit(
       id: id ?? this.id,
       counterparty: counterparty,
@@ -47,6 +52,7 @@ class Deposit {
       sourcePackage: sourcePackage,
       bankName: bankName,
       status: status ?? this.status,
+      transactionId: transactionId ?? this.transactionId,
       createdAt: createdAt,
     );
   }

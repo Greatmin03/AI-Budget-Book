@@ -1,3 +1,5 @@
+import '../constants/app_categories.dart';
+
 /// SQLite 스키마 정의.
 ///
 /// 테이블/컬럼 이름을 문자열 상수로 모아두어 DataSource 들이 오타 없이 참조하게 한다.
@@ -23,9 +25,10 @@ class DbSchema {
   ///           `transactions.asset_kind`(저축/청약/투자 구분) 추가
   /// v8 -> v9: `transactions.ai_status`, `transactions.ai_processed_at`
   ///           (AI 분류 대기열. 실시간 LLM 호출을 없애고 일괄 처리로 옮겼다)
+  /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v9 -> v10: `card_account_links` 추가
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
-  static const int databaseVersion = 10;
+  static const int databaseVersion = 11;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -194,6 +197,13 @@ class DbSchema {
 
   /// pending | linked | ignored
   static const String dpStatus = 'status';
+
+  /// 이 입금으로 만들어진 수입 거래.
+  ///
+  /// 입금은 두 곳에 남는다 — 정산 후보 목록(`deposits`)과 수입 통계
+  /// (`transactions`). 이 연결이 있어야 정산으로 확정됐을 때 그 수입 거래를
+  /// 찾아 `정산` 분류로 옮길 수 있다(= 수입 통계에서 뺄 수 있다).
+  static const String dpTransactionId = 'transaction_id';
   static const String dpFingerprint = 'fingerprint';
   static const String dpCreatedAt = 'created_at';
 
@@ -508,6 +518,8 @@ class DbSchema {
       $dpBankName TEXT,
       $dpStatus TEXT NOT NULL DEFAULT 'pending',
       $dpFingerprint TEXT NOT NULL UNIQUE,
+      $dpTransactionId INTEGER
+        REFERENCES $tableTransactions($tId) ON DELETE SET NULL,
       $dpCreatedAt INTEGER NOT NULL
     )
     ''',
@@ -616,6 +628,17 @@ class DbSchema {
 
   /// 들어오는 돈만.
   static const String incomeOnly = "t.$tDirection = 'income'";
+
+  /// **번 돈만.** 돌려받은 돈(정산)을 뺀다.
+  ///
+  /// 더치페이로 친구가 보낸 20,000원은 소득이 아니다. 그 결제의
+  /// `settlements` 로 이미 내 부담이 줄었으므로, 수입으로도 세면 같은 돈을
+  /// 두 번 세게 된다.
+  ///
+  /// "얼마가 들어왔나"(= [incomeOnly])와 "얼마를 벌었나"(= 이 조건)는
+  /// 다른 질문이다. 수입 통계는 후자에 답한다.
+  static const String earnedIncomeOnly =
+      "$incomeOnly AND t.$tCategory != '${CategoryTaxonomy.settlementCategory}'";
 
   /// **소비 지표에만 포함되는 거래** 조건.
   ///
@@ -862,6 +885,11 @@ class DbSchema {
         $calCreatedAt INTEGER NOT NULL
       )
       ''',
+    ],
+    11: <String>[
+      // 입금을 수입 거래로도 남기기 시작했다. 그 거래를 가리키는 연결.
+      'ALTER TABLE $tableDeposits ADD COLUMN $dpTransactionId INTEGER '
+          'REFERENCES $tableTransactions($tId) ON DELETE SET NULL',
     ],
   };
 }

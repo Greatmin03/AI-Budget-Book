@@ -1,3 +1,4 @@
+import '../../../../core/constants/app_categories.dart';
 import '../../../../core/logging/app_logger.dart';
 import '../../../transactions/domain/entities/transaction.dart';
 import '../../../transactions/domain/repositories/transaction_repository.dart';
@@ -152,10 +153,40 @@ class LinkDepositToTransaction {
     if (depositId != null) {
       await _deposits.updateStatus(depositId, DepositStatus.linked);
     }
+    await _markAsSettlementIncome(deposit);
 
     AppLogger.i('입금 연결: ${deposit.counterparty} +${deposit.amount}원 '
         '-> ${transaction.displayName}');
     return settlement;
+  }
+
+  /// 이 입금으로 만들어진 수입 거래를 `정산` 분류로 옮긴다.
+  ///
+  /// 정산으로 확정된 순간 그 돈은 **소득이 아니게 된다.** 이미 원결제의
+  /// `settlements` 로 내 부담이 줄었으므로, 수입으로도 세면 같은 돈을 두 번
+  /// 세는 것이 된다.
+  ///
+  /// 거래를 지우지는 않는다. "이번 달에 얼마가 들어왔나" 에는 여전히 답해야
+  /// 하고, 연결을 잘못했을 때 되돌릴 근거도 남아야 한다.
+  Future<void> _markAsSettlementIncome(Deposit deposit) async {
+    final int? transactionId = deposit.transactionId;
+    if (transactionId == null) return;
+
+    try {
+      final Transaction? income = await _transactions.findById(transactionId);
+      if (income == null) return;
+
+      await _transactions.update(
+        income.copyWith(
+          category: CategoryTaxonomy.settlementCategory,
+          subcategory: '더치페이',
+          needsReview: false,
+        ),
+      );
+    } on Object catch (e, stack) {
+      // 분류 이동 실패가 정산 자체를 막아서는 안 된다.
+      AppLogger.e('정산 수입 분류 이동 실패', e, stack);
+    }
   }
 
   /// "정산이 아님" 으로 표시해 목록에서 내린다.

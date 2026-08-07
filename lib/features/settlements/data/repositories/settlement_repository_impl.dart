@@ -120,6 +120,7 @@ class DepositRepositoryImpl implements DepositRepository {
       DbSchema.dpBankName: deposit.bankName,
       DbSchema.dpStatus: deposit.status.name,
       DbSchema.dpFingerprint: deposit.fingerprint,
+      DbSchema.dpTransactionId: deposit.transactionId,
       DbSchema.dpCreatedAt: DateTime.now().millisecondsSinceEpoch,
     });
 
@@ -170,6 +171,7 @@ class DepositRepositoryImpl implements DepositRepository {
       bankName: row[DbSchema.dpBankName] as String?,
       status: DepositStatus.fromCode(row[DbSchema.dpStatus] as String?),
       fingerprint: (row[DbSchema.dpFingerprint] as String?) ?? '',
+      transactionId: row[DbSchema.dpTransactionId] as int?,
       createdAt: row[DbSchema.dpCreatedAt] == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(
