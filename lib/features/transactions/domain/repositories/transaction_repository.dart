@@ -29,6 +29,19 @@ abstract interface class TransactionRepository {
 
   Future<void> delete(int id);
 
+  /// 이 취소가 되돌리는 원결제를 찾는다. 없으면 null.
+  ///
+  /// 같은 브랜드 + 같은 금액 + 취소보다 앞선 결제 중 **가장 가까운 것** 하나.
+  /// 아직 취소 표시되지 않은 것만 본다(한 결제를 두 번 취소할 수는 없다).
+  Future<Transaction?> findCancellationTarget({
+    required String brand,
+    required int amount,
+    required DateTime cancelledAt,
+  });
+
+  /// 취소 표시를 단다. 금액과 원문은 건드리지 않는다.
+  Future<void> markCancelled(int id);
+
   /// 브랜드 재정규화 대상: (원본 거래명, 현재 브랜드) 조합과 건수.
   ///
   /// 거래를 한 건씩 훑지 않고 조합 단위로 묶어 온다. 같은 가게를 백 번 갔어도

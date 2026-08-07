@@ -25,10 +25,11 @@ class DbSchema {
   ///           `transactions.asset_kind`(저축/청약/투자 구분) 추가
   /// v8 -> v9: `transactions.ai_status`, `transactions.ai_processed_at`
   ///           (AI 분류 대기열. 실시간 LLM 호출을 없애고 일괄 처리로 옮겼다)
-  /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v9 -> v10: `card_account_links` 추가
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
-  static const int databaseVersion = 11;
+  /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
+  /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
+  static const int databaseVersion = 12;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -181,9 +182,10 @@ class DbSchema {
   static const String stCreatedAt = 'created_at';
 
   // ----------------------------------------------------------------- deposits
-  /// 입금 알림. **지출이 아니므로 `transactions` 에 넣지 않는다.**
+  /// 입금 알림. 정산 후보 목록이다.
   ///
-  /// 정산 후보로만 쓰인다. 브랜드 학습에는 절대 사용하지 않는다.
+  /// 같은 입금이 `transactions` 에도 **수입 거래**로 들어간다(v11). 두 곳을
+  /// [dpTransactionId] 로 잇는다. 브랜드 학습에는 절대 사용하지 않는다.
   static const String tableDeposits = 'deposits';
   static const String dpId = 'id';
 
@@ -629,6 +631,16 @@ class DbSchema {
   /// 들어오는 돈만.
   static const String incomeOnly = "t.$tDirection = 'income'";
 
+  /// 취소되지 않은 거래.
+  ///
+  /// 승인취소가 오면 **취소 건과 원결제 양쪽에** 이 표시를 단다. 그래야 한
+  /// 조건으로 둘 다 빠진다.
+  ///
+  /// 취소 건만 빼면 원결제가 그대로 남아 쓰지도 않은 돈이 잡히고, 둘 다
+  /// 남기면 금액은 상계되지만 **건수가 오염된다** — 취소된 결제 한 번 때문에
+  /// "가장 많이 간 가게" 1위가 되는 식이다. 없었던 일로 다루는 것이 맞다.
+  static const String notCancelled = 't.$tIsCancelled = 0';
+
   /// **번 돈만.** 돌려받은 돈(정산)을 뺀다.
   ///
   /// 더치페이로 친구가 보낸 20,000원은 소득이 아니다. 그 결제의
@@ -637,8 +649,8 @@ class DbSchema {
   ///
   /// "얼마가 들어왔나"(= [incomeOnly])와 "얼마를 벌었나"(= 이 조건)는
   /// 다른 질문이다. 수입 통계는 후자에 답한다.
-  static const String earnedIncomeOnly =
-      "$incomeOnly AND t.$tCategory != '${CategoryTaxonomy.settlementCategory}'";
+  static const String earnedIncomeOnly = '$incomeOnly AND $notCancelled '
+      "AND t.$tCategory != '${CategoryTaxonomy.settlementCategory}'";
 
   /// **소비 지표에만 포함되는 거래** 조건.
   ///
@@ -649,7 +661,7 @@ class DbSchema {
   /// 카테고리 비율·브랜드 순위·소비 추이 같은 지표는 모두 이 조건을 붙인다.
   /// 현금 흐름 지표는 [expenseOnly] 를 쓴다(자산 이동 포함, 수입 제외).
   static const String spendingOnly =
-      't.$tIsAssetTransfer = 0 AND $expenseOnly';
+      't.$tIsAssetTransfer = 0 AND $expenseOnly AND $notCancelled';
 
   /// 자산 이동만. 저축/청약/투자 구분은 [tAssetKind] 로 한다.
   static const String assetTransferOnly =
@@ -890,6 +902,32 @@ class DbSchema {
       // 입금을 수입 거래로도 남기기 시작했다. 그 거래를 가리키는 연결.
       'ALTER TABLE $tableDeposits ADD COLUMN $dpTransactionId INTEGER '
           'REFERENCES $tableTransactions($tId) ON DELETE SET NULL',
+    ],
+    12: <String>[
+      // 통계가 `is_cancelled = 0` 을 보기 시작했다. 그전에는 취소 건만
+      // 표시되어 있었으므로, 이 이관 없이는 **원결제만 남아 쓰지도 않은 돈이
+      // 잡힌다.** 이미 쌓인 취소 쌍의 원결제에도 표시를 단다.
+      //
+      // 같은 브랜드 + 같은 금액 + 취소보다 앞선 결제 중 가장 가까운 것 하나.
+      // 60일을 넘겨 거슬러 올라가지 않는다 — 우연히 금액이 같은 옛 결제를
+      // 지우면 안 된다.
+      '''
+      UPDATE $tableTransactions SET $tIsCancelled = 1
+      WHERE $tId IN (
+        SELECT (
+          SELECT o.$tId FROM $tableTransactions o
+          WHERE o.$tBrand = c.$tBrand
+            AND o.$tAmount = -c.$tAmount
+            AND o.$tIsCancelled = 0
+            AND o.$tPaymentDatetime <= c.$tPaymentDatetime
+            AND o.$tPaymentDatetime >= c.$tPaymentDatetime - 5184000000
+          ORDER BY o.$tPaymentDatetime DESC
+          LIMIT 1
+        )
+        FROM $tableTransactions c
+        WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
+      )
+      ''',
     ],
   };
 }

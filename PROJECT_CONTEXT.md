@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v11** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v12** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 11`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 12`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -331,6 +331,20 @@ settlements  statistics  transactions
 - 정산으로 확정되면 그 수입 거래를 `정산` 분류로 옮긴다. 돌려받은 돈은 번 돈이 아니다.
   이미 원결제의 `settlements` 로 부담이 줄었으므로 수입으로도 세면 두 번 세는 것이다.
 - 데이터 마이그레이션은 없다. 옛 입금에는 연결이 없고(`NULL`), 그 경우 분류 이동만 건너뛴다.
+
+#### v12 — 취소된 원결제도 통계에서 제외
+- **추가 컬럼 없음.** 데이터만 고친다.
+- 그전까지 `is_cancelled` 는 취소 건에만 붙었고 통계는 이 값을 보지 않았다.
+  금액은 상계되어 맞았지만 **건수가 오염**됐다 — 취소된 결제 한 번 때문에
+  "가장 많이 간 가게" 1위가 되는 식이다.
+- 이제 취소가 오면 **원결제에도** 표시를 달고, 통계는 `is_cancelled = 0` 한
+  조건으로 둘 다 뺀다.
+- **데이터 마이그레이션**: 이미 쌓인 취소 쌍의 원결제에 표시를 단다.
+  ```sql
+  UPDATE transactions SET is_cancelled = 1 WHERE id IN (...)
+  ```
+  이 이관이 없으면 취소 건만 빠지고 원결제가 남아 **오히려 나빠진다.**
+  같은 브랜드 + 같은 금액 + 60일 이내의 가장 가까운 결제 하나만 짝짓는다.
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 

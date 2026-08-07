@@ -204,6 +204,33 @@ class TransactionRepositoryImpl implements TransactionRepository {
     _notify();
   }
 
+  /// 승인취소가 원결제보다 얼마나 늦게까지 올 수 있는지.
+  ///
+  /// 보통 같은 날이지만 며칠 뒤에 오는 경우도 있다. 넉넉히 잡되 무한정
+  /// 거슬러 올라가지는 않는다 — 우연히 같은 금액인 옛 결제를 지우면 안 된다.
+  static const Duration _cancellationWindow = Duration(days: 60);
+
+  @override
+  Future<Transaction?> findCancellationTarget({
+    required String brand,
+    required int amount,
+    required DateTime cancelledAt,
+  }) async {
+    final Map<String, Object?>? row = await _local.findCancellationTarget(
+      brand: brand,
+      amount: amount,
+      cancelledAtMillis: cancelledAt.millisecondsSinceEpoch,
+      windowMillis: _cancellationWindow.inMilliseconds,
+    );
+    return row == null ? null : TransactionDto.fromRow(row);
+  }
+
+  @override
+  Future<void> markCancelled(int id) async {
+    await _local.markCancelled(id, DateTime.now().millisecondsSinceEpoch);
+    _notify();
+  }
+
   @override
   Future<List<BrandSource>> distinctBrandSources() async {
     final List<Map<String, Object?>> rows = await _local.distinctBrandSources();

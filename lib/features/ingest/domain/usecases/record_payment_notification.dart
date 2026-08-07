@@ -289,6 +289,11 @@ class RecordPaymentNotification {
       return const IngestDuplicate();
     }
 
+    // 승인취소라면 원결제도 함께 무효로 만든다.
+    if (payment.isCancellation) {
+      await _voidOriginalPayment(saved);
+    }
+
     // 매칭 횟수 갱신(통계의 "가장 많이 간 가게" 보조 지표)
     final int? merchantId = resolution.merchant?.id;
     if (merchantId != null) {
@@ -329,6 +334,41 @@ class RecordPaymentNotification {
   }
 
   /// 가맹점 문자열을 분류로 바꾼다.
+  /// 승인취소가 되돌리는 **원결제**에도 취소 표시를 단다.
+  ///
+  /// 취소 건만 표시하면 원결제가 통계에 그대로 남아 쓰지도 않은 돈이 잡힌다.
+  /// 둘 다 남기면 금액은 상계되지만 건수가 오염된다 — 취소된 결제 한 번
+  /// 때문에 "가장 많이 간 가게" 1위가 되는 식이다.
+  ///
+  /// **금액과 원문은 건드리지 않는다.** 표시만 단다. 목록에는 두 줄 다
+  /// 그대로 보이고, 통계에서만 빠진다.
+  ///
+  /// 원결제를 못 찾으면 아무것도 하지 않는다. 알림을 수집하기 전의 결제일 수
+  /// 있고, 그때는 원결제가 애초에 통계에 없다.
+  Future<void> _voidOriginalPayment(Transaction cancellation) async {
+    try {
+      final Transaction? original = await _transactions.findCancellationTarget(
+        brand: cancellation.brand,
+        // 취소는 음수로 저장된다. 원결제는 같은 크기의 양수다.
+        amount: cancellation.amount.abs(),
+        cancelledAt: cancellation.paymentDatetime,
+      );
+      final int? id = original?.id;
+      if (id == null) {
+        AppLogger.i('취소된 원결제를 찾지 못했습니다: '
+            '${cancellation.brand} ${cancellation.amount.abs()}원');
+        return;
+      }
+
+      await _transactions.markCancelled(id);
+      AppLogger.i('승인취소로 원결제 무효 처리: '
+          '${cancellation.brand} ${cancellation.amount.abs()}원');
+    } on Object catch (e, stack) {
+      // 취소 처리 실패가 거래 기록을 되돌리지는 않는다.
+      AppLogger.e('원결제 무효 처리 실패', e, stack);
+    }
+  }
+
   Future<_Resolution> _resolve(ParsedPayment payment) async {
     // 가맹점을 특정하지 못한 경우엔 학습하지 않는다(쓰레기 데이터 방지).
     // 대신 사용자 확인 대상으로 올려 직접 고칠 수 있게 한다.

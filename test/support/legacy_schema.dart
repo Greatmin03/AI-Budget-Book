@@ -21,6 +21,7 @@ class LegacySchema {
   static const Map<int, List<String>> _addedIn = <int, List<String>>{
     10: <String>[DbSchema.tableCardAccountLinks],
     11: <String>['${DbSchema.tableDeposits}.${DbSchema.dpTransactionId}'],
+    // v12 는 데이터만 고친다. 스키마에 추가된 것이 없다.
   };
 
   /// [version] 시점의 스키마를 [db] 에 만든다.

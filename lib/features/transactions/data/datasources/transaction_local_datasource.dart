@@ -277,6 +277,44 @@ class TransactionLocalDataSource {
     );
   }
 
+  /// 취소가 되돌리는 원결제 후보. 가장 가까운 것부터.
+  Future<Map<String, Object?>?> findCancellationTarget({
+    required String brand,
+    required int amount,
+    required int cancelledAtMillis,
+    required int windowMillis,
+  }) async {
+    final List<Map<String, Object?>> rows = await _db.rawQuery(
+      '$_select '
+      'WHERE t.${DbSchema.tBrand} = ? '
+      '  AND t.${DbSchema.tAmount} = ? '
+      '  AND t.${DbSchema.tIsCancelled} = 0 '
+      '  AND t.${DbSchema.tPaymentDatetime} <= ? '
+      '  AND t.${DbSchema.tPaymentDatetime} >= ? '
+      'ORDER BY t.${DbSchema.tPaymentDatetime} DESC '
+      'LIMIT 1',
+      <Object?>[
+        brand,
+        amount,
+        cancelledAtMillis,
+        cancelledAtMillis - windowMillis,
+      ],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<int> markCancelled(int id, int updatedAt) {
+    return _db.update(
+      _t,
+      <String, Object?>{
+        DbSchema.tIsCancelled: 1,
+        DbSchema.tUpdatedAt: updatedAt,
+      },
+      where: '${DbSchema.tId} = ?',
+      whereArgs: <Object?>[id],
+    );
+  }
+
   Future<int> reclassifyByBrand({
     required String brand,
     required String category,
