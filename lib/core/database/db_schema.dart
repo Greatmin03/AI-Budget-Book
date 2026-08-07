@@ -29,7 +29,9 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
-  static const int databaseVersion = 12;
+  /// v12 -> v13: `unmapped_place_categories` 추가
+  ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
+  static const int databaseVersion = 13;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -208,6 +210,24 @@ class DbSchema {
   static const String dpTransactionId = 'transaction_id';
   static const String dpFingerprint = 'fingerprint';
   static const String dpCreatedAt = 'created_at';
+
+  // ------------------------------------------------ unmapped_place_categories
+  /// 우리 체계로 **옮기지 못한** 카카오 `category_name`.
+  ///
+  /// 매핑표를 추측으로 늘리지 않기 위한 근거다. 실제로 무엇이 들어오는지
+  /// 모르면 "브런치도 넣어야 하나" 를 감으로 결정하게 된다.
+  ///
+  /// `category_name` 이 키다. 같은 업종이 또 와도 행을 늘리지 않고 횟수만
+  /// 올린다 — 무엇이 **자주** 막히는지가 알고 싶은 것이기 때문이다.
+  static const String tableUnmappedPlaceCategories =
+      'unmapped_place_categories';
+  static const String upcCategoryName = 'category_name';
+
+  /// 이 업종으로 들어온 가맹점 하나. 무엇을 뜻하는 업종인지 가늠하는 데 쓴다.
+  static const String upcSampleMerchant = 'sample_merchant';
+  static const String upcHitCount = 'hit_count';
+  static const String upcFirstSeenAt = 'first_seen_at';
+  static const String upcLastSeenAt = 'last_seen_at';
 
   // ---------------------------------------------------------- recurring_rules
   /// 정기결제 규칙. 거래를 복제하지 않고 "이 브랜드는 매달 나간다" 만 기록한다.
@@ -523,6 +543,15 @@ class DbSchema {
       $dpTransactionId INTEGER
         REFERENCES $tableTransactions($tId) ON DELETE SET NULL,
       $dpCreatedAt INTEGER NOT NULL
+    )
+    ''',
+    '''
+    CREATE TABLE $tableUnmappedPlaceCategories (
+      $upcCategoryName TEXT PRIMARY KEY,
+      $upcSampleMerchant TEXT,
+      $upcHitCount INTEGER NOT NULL DEFAULT 1,
+      $upcFirstSeenAt INTEGER NOT NULL,
+      $upcLastSeenAt INTEGER NOT NULL
     )
     ''',
     '''
@@ -926,6 +955,17 @@ class DbSchema {
         )
         FROM $tableTransactions c
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
+      )
+      ''',
+    ],
+    13: <String>[
+      '''
+      CREATE TABLE IF NOT EXISTS $tableUnmappedPlaceCategories (
+        $upcCategoryName TEXT PRIMARY KEY,
+        $upcSampleMerchant TEXT,
+        $upcHitCount INTEGER NOT NULL DEFAULT 1,
+        $upcFirstSeenAt INTEGER NOT NULL,
+        $upcLastSeenAt INTEGER NOT NULL
       )
       ''',
     ],

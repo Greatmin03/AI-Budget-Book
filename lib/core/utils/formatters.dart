@@ -76,6 +76,12 @@ class Formatters {
     return (current - previous) / previous * 100;
   }
 
+  /// 0.0~1.0 의 비율을 `73%` 로.
+  ///
+  /// [changeLabel] 과 달리 이미 백분율로 환산된 값이 아니라 **비율**을 받는다.
+  static String percent(double ratio) =>
+      '${(ratio * 100).toStringAsFixed(0)}%';
+
   /// `12% 증가` / `3% 감소`
   static String changeLabel(double rate) {
     final String direction = rate >= 0 ? '증가' : '감소';

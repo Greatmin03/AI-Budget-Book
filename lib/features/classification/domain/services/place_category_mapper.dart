@@ -1,5 +1,29 @@
 import '../../../../core/constants/app_categories.dart';
 
+/// 업종 문자열 하나를 옮긴 결과.
+class PlaceMapping {
+  const PlaceMapping({
+    required this.pair,
+    required this.matchedSegment,
+    required this.isCoarse,
+  });
+
+  final CategoryPair pair;
+
+  /// 실제로 규칙에 맞은 단계. 예: `커피전문점`
+  final String matchedSegment;
+
+  /// **큰 분류로만 맞았는가.**
+  ///
+  /// `음식점 > 브런치` 에서 `브런치` 를 못 옮기고 `음식점` 으로 떨어진 경우다.
+  /// 결과(`식비/기타`)는 나오지만 정보는 사라졌다. 매핑표를 늘릴 자리다.
+  final bool isCoarse;
+
+  @override
+  String toString() =>
+      '$pair (맞은 단계: $matchedSegment${isCoarse ? ', 큰 분류' : ''})';
+}
+
 /// 후보 여러 개를 비교한 결과.
 class PlaceConsensus {
   const PlaceConsensus({
@@ -8,10 +32,14 @@ class PlaceConsensus {
     required this.agreeing,
     required this.mappable,
     required this.total,
+    this.unmapped = const <String>[],
   });
 
-  const PlaceConsensus.ambiguous({required this.total, this.industry})
-      : pair = null,
+  const PlaceConsensus.ambiguous({
+    required this.total,
+    this.industry,
+    this.unmapped = const <String>[],
+  })  : pair = null,
         agreeing = 0,
         mappable = 0;
 
@@ -29,6 +57,16 @@ class PlaceConsensus {
 
   /// 받은 후보 총 수.
   final int total;
+
+  /// 매핑표를 늘릴 자리로 지목된 `category_name` 원본.
+  ///
+  /// 두 가지가 들어온다.
+  ///  - 아예 못 옮긴 것
+  ///  - **큰 분류로만 옮긴 것** (`음식점 > 브런치` -> `식비/기타`)
+  ///
+  /// 후자를 빼면 안 된다. 매핑에는 "성공" 했지만 정보가 사라졌고, 사용자가
+  /// 겪는 "식비 하나로만 들어간다" 가 바로 이 경우다.
+  final List<String> unmapped;
 
   /// 자동 분류해도 되는가.
   bool get isConfident => pair != null;
@@ -172,7 +210,15 @@ class PlaceCategoryMapper {
   /// 업종 문자열을 카테고리로 변환한다. 매칭 실패 시 null.
   ///
   /// 계층 문자열의 **가장 구체적인 단계부터** 검사한다.
-  CategoryPair? map(String? categoryName) {
+  CategoryPair? map(String? categoryName) => mapDetailed(categoryName)?.pair;
+
+  /// [map] 과 같지만 **어느 단계에서 맞았는지**까지 알려 준다.
+  ///
+  /// `음식점 > 브런치` 처럼 구체적인 단계를 못 옮기고 큰 분류(`음식점`)로
+  /// 떨어지면 결과는 `식비/기타` 가 된다. 매핑에는 "성공" 했지만 정보는
+  /// 사라진 것이다. **이 경우를 실패와 구분하지 못하면** 사용자가 겪는
+  /// "식비 하나로만 들어간다" 를 진단할 수 없다.
+  PlaceMapping? mapDetailed(String? categoryName) {
     if (categoryName == null || categoryName.trim().isEmpty) return null;
 
     // "음식점 > 중식 > 중국요리" -> ["중국요리", "중식", "음식점"]
@@ -184,14 +230,31 @@ class PlaceCategoryMapper {
         .reversed
         .toList();
 
-    for (final String segment in segments) {
+    for (int i = 0; i < segments.length; i++) {
+      final String segment = segments[i];
+      // 가장 넓은 단계(맨 왼쪽)에서만 맞았고 더 구체적인 단계가 있었다면,
+      // 그 구체적인 단계를 못 옮긴 것이다.
+      final bool coarse = i == segments.length - 1 && segments.length > 1;
+
       // 세그먼트 정확 일치 우선
       final CategoryPair? exact = _rules[segment];
-      if (exact != null) return _validate(exact);
+      if (exact != null) {
+        return PlaceMapping(
+          pair: _validate(exact),
+          matchedSegment: segment,
+          isCoarse: coarse,
+        );
+      }
 
       // 부분 일치(긴 키워드부터)
       for (final String key in _sortedKeys) {
-        if (segment.contains(key)) return _validate(_rules[key]!);
+        if (segment.contains(key)) {
+          return PlaceMapping(
+            pair: _validate(_rules[key]!),
+            matchedSegment: segment,
+            isCoarse: coarse,
+          );
+        }
       }
     }
     return null;
@@ -232,9 +295,18 @@ class PlaceCategoryMapper {
     final Map<CategoryPair, int> votes = <CategoryPair, int>{};
     final Map<CategoryPair, String> industries = <CategoryPair, String>{};
 
+    final List<String> unmapped = <String>[];
+
     for (final String categoryName in categoryNames) {
-      final CategoryPair? pair = map(categoryName);
-      if (pair == null) continue;
+      final PlaceMapping? mapping = mapDetailed(categoryName);
+      if (mapping == null) {
+        unmapped.add(categoryName);
+        continue;
+      }
+      // 큰 분류로만 맞았으면 결과는 쓰되 근거로도 남긴다.
+      if (mapping.isCoarse) unmapped.add(categoryName);
+
+      final CategoryPair pair = mapping.pair;
       votes[pair] = (votes[pair] ?? 0) + 1;
       industries[pair] ??= primaryIndustry(categoryName) ?? categoryName;
     }
@@ -246,6 +318,7 @@ class PlaceCategoryMapper {
       return PlaceConsensus.ambiguous(
         total: categoryNames.length,
         industry: fallbackIndustry,
+        unmapped: unmapped,
       );
     }
 
@@ -264,6 +337,7 @@ class PlaceCategoryMapper {
         agreeing: 1,
         mappable: 1,
         total: categoryNames.length,
+        unmapped: unmapped,
       );
     }
 
@@ -274,6 +348,7 @@ class PlaceCategoryMapper {
       return PlaceConsensus.ambiguous(
         total: categoryNames.length,
         industry: fallbackIndustry,
+        unmapped: unmapped,
       );
     }
 
@@ -283,6 +358,7 @@ class PlaceCategoryMapper {
       agreeing: first.value,
       mappable: mappable,
       total: categoryNames.length,
+      unmapped: unmapped,
     );
   }
 

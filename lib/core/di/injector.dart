@@ -3,8 +3,10 @@ import 'package:sqflite/sqflite.dart';
 import '../../features/classification/data/datasources/ollama_remote_datasource.dart';
 import '../../features/classification/data/datasources/place_api_datasource.dart';
 import '../../features/classification/data/repositories/brand_metadata_repository_impl.dart';
+import '../../features/classification/data/repositories/classification_diagnostics_repository_impl.dart';
 import '../../features/classification/data/repositories/classifier_repository_impl.dart';
 import '../../features/classification/domain/repositories/brand_metadata_repository.dart';
+import '../../features/classification/domain/repositories/classification_diagnostics_repository.dart';
 import '../../features/classification/domain/repositories/classifier_repository.dart';
 import '../../features/classification/domain/usecases/lookup_brand_industry.dart';
 import '../../features/classification/domain/usecases/process_ai_pending_queue.dart';
@@ -118,6 +120,9 @@ class Injector {
 
   // --------------------------------------------------------------- use cases
 
+  /// 분류 파이프라인 계측(디버그 화면 + 미매핑 업종 수집).
+  late final ClassificationDiagnosticsRepository classificationDiagnostics;
+
   /// 브랜드 업종 조회(브랜드당 최대 1회). 설정에서 상태 확인/키 테스트에도 쓴다.
   late final LookupBrandIndustry lookupBrandIndustry;
 
@@ -200,6 +205,8 @@ class Injector {
       channel: channel,
     );
     brandMetadata = BrandMetadataRepositoryImpl(db);
+    classificationDiagnostics =
+        ClassificationDiagnosticsRepositoryImpl(db);
     classifier = ClassifierRepositoryImpl(
       remote: ollama,
       settings: settings,
@@ -210,6 +217,7 @@ class Injector {
       metadata: brandMetadata,
       placeApi: placeApi,
       settings: settings,
+      diagnostics: classificationDiagnostics,
     );
     processAiQueue = ProcessAiPendingQueue(
       classifier: classifier,

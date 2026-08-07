@@ -5,6 +5,7 @@ import '../../../settings/domain/repositories/settings_repository.dart';
 import '../../data/datasources/place_api_datasource.dart';
 import '../entities/brand_metadata.dart';
 import '../repositories/brand_metadata_repository.dart';
+import '../repositories/classification_diagnostics_repository.dart';
 import '../services/place_category_mapper.dart';
 
 /// 장소 API 로 브랜드 업종을 조회한다. **브랜드당 최대 1회.**
@@ -25,16 +26,50 @@ class LookupBrandIndustry {
     required BrandMetadataRepository metadata,
     required PlaceApiDataSource placeApi,
     required SettingsRepository settings,
+    ClassificationDiagnosticsRepository? diagnostics,
     PlaceCategoryMapper mapper = const PlaceCategoryMapper(),
   })  : _metadata = metadata,
         _placeApi = placeApi,
         _settings = settings,
+        _diagnostics = diagnostics,
         _mapper = mapper;
 
   final BrandMetadataRepository _metadata;
   final PlaceApiDataSource _placeApi;
   final SettingsRepository _settings;
   final PlaceCategoryMapper _mapper;
+
+  /// 매핑 실패를 남기는 곳. null 이면 기록하지 않는다.
+  final ClassificationDiagnosticsRepository? _diagnostics;
+
+  /// 매핑 결과를 한 줄로 남긴다.
+  ///
+  /// 추측으로 매핑표를 늘리지 않으려면 **무엇이 들어와서 무엇이 됐는지**
+  /// 볼 수 있어야 한다. 이 로그가 매핑 보강의 유일한 근거다.
+  void _logMapping(String brand, PlaceConsensus consensus) {
+    final String unmapped = consensus.unmapped.isEmpty
+        ? ''
+        : ' / 못 옮김 ${consensus.unmapped}';
+    final String result =
+        consensus.pair == null ? '실패 (판단 불가)' : '${consensus.pair}';
+
+    AppLogger.i('[업종 매핑] $brand\n'
+        '  받은 업종: ${consensus.total}건$unmapped\n'
+        '  결과: $result');
+  }
+
+  /// 못 옮긴 업종을 모아 둔다. 자주 막히는 것부터 매핑표에 넣는다.
+  Future<void> _recordUnmapped(String brand, PlaceConsensus consensus) async {
+    final ClassificationDiagnosticsRepository? diagnostics = _diagnostics;
+    if (diagnostics == null || consensus.unmapped.isEmpty) return;
+
+    for (final String categoryName in consensus.unmapped) {
+      await diagnostics.recordUnmapped(
+        categoryName: categoryName,
+        sampleMerchant: brand,
+      );
+    }
+  }
 
   /// 한도 초과 시 쉬는 시간. 하루면 다음 날 할당량이 복구된다.
   static const Duration _throttleDuration = Duration(hours: 24);
@@ -104,6 +139,8 @@ class LookupBrandIndustry {
     // 굳는다. 자동 분류는 사용자에게 묻지 않으므로 애매하면 넘기는 편이 낫다.
     final PlaceConsensus consensus =
         _mapper.resolveConsensus(result.categoryNames);
+    _logMapping(trimmed, consensus);
+    await _recordUnmapped(trimmed, consensus);
 
     // 판단하지 못한 경우도 캐시한다.
     //

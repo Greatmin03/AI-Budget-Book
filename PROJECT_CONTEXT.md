@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v12** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v13** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 12`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 13`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -253,6 +253,7 @@ settlements  statistics  transactions
 | `brand_metadata` | 브랜드 업종/분류 캐시 | **못 찾음도 저장** |
 | `settings` | key-value 설정 | |
 | `ingest_failures` | 파싱 실패 보관함 | 파서 개선용 재료 |
+| `unmapped_place_categories` | 못 옮긴 카카오 업종 | 매핑표를 늘릴 근거. 추측 금지 |
 
 ### 스키마 버전별 변경 이력
 
@@ -345,6 +346,18 @@ settlements  statistics  transactions
   ```
   이 이관이 없으면 취소 건만 빠지고 원결제가 남아 **오히려 나빠진다.**
   같은 브랜드 + 같은 금액 + 60일 이내의 가장 가까운 결제 하나만 짝짓는다.
+
+#### v13 — 분류 진단
+- **추가 테이블**: `unmapped_place_categories`
+  (`category_name` PK, `sample_merchant`, `hit_count`, `first_seen_at`, `last_seen_at`)
+- 매핑표를 **추측으로** 늘리지 않기 위한 근거다. 실제로 무엇이 막히는지 모르면
+  "브런치도 넣어야 하나" 를 감으로 결정하게 된다.
+- 두 가지를 수집한다.
+  - 아예 못 옮긴 업종
+  - **큰 분류로만 옮긴 업종** — `음식점 > 브런치` 가 `음식점` 규칙에 걸려
+    `식비/기타` 가 되는 경우다. 매핑에는 "성공" 했지만 정보가 사라졌고,
+    사용자가 겪는 "식비 하나로만 들어간다" 가 바로 이것이다.
+- 설정 > 개발자 > 분류 진단 (`kDebugMode` 에서만 보인다)
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/di/injector.dart';
@@ -6,6 +7,7 @@ import '../../../classification/data/datasources/place_api_datasource.dart';
 import '../../../classification/domain/entities/llm_health.dart';
 import '../../../classification/domain/usecases/process_ai_pending_queue.dart';
 import '../../../classification/presentation/controllers/ai_queue_controller.dart';
+import '../../../classification/presentation/screens/diagnostics_screen.dart';
 import '../../../ingest/domain/services/notification_ingest_service.dart';
 import '../controllers/settings_controller.dart';
 import '../../../notifications/domain/entities/notification_source.dart';
@@ -399,6 +401,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 builder: (_) => const _LogSheet(),
               ),
             ),
+
+            // 개발자용. 릴리즈 빌드에는 나타나지 않는다.
+            if (kDebugMode) ...<Widget>[
+              const Divider(),
+              const _SectionHeader('개발자'),
+              ListTile(
+                leading: const Icon(Icons.query_stats_outlined),
+                title: const Text('분류 진단'),
+                subtitle: const Text(
+                  '자동 분류 성공률, 매핑하지 못한 업종 목록. '
+                  '디버그 빌드에서만 보입니다.',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DiagnosticsScreen(),
+                  ),
+                ),
+              ),
+            ],
 
             const Divider(),
             const Padding(
