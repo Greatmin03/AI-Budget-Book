@@ -264,9 +264,22 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('순'), findsOneWidget);
       expect(find.text('+285,000원'), findsOneWidget);
-      // 색이 들어간 지출/수입 라벨은 헤더에서 없앴다.
-      expect(find.text('지출'), findsNothing);
-      expect(find.text('수입'), findsNothing);
+      // 색이 들어간 지출/수입 라벨은 **기간 합계 바에서** 없앴다.
+      // (하루 요약에는 `지출 -15,000원` 처럼 라벨이 붙는다 — 다른 위젯이다)
+      expect(
+        find.descendant(
+          of: find.byType(TransactionPeriodTotals),
+          matching: find.text('지출'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TransactionPeriodTotals),
+          matching: find.text('수입'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('지출만 있으면 헤더는 지출 합계 한 줄이다',

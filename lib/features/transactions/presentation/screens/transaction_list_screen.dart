@@ -23,6 +23,17 @@ class TransactionListScreen extends StatefulWidget {
 }
 
 class _TransactionListScreenState extends State<TransactionListScreen> {
+  /// 펼쳐 둔 날짜.
+  ///
+  /// 기본은 전부 접힘이다. 하루 요약을 먼저 보고 궁금한 날만 펼친다.
+  /// 한 달치를 한 줄씩 늘어놓으면 스크롤만 길어진다.
+  final Set<DateTime> _expandedDays = <DateTime>{};
+
+  void _toggleDay(DateTime day) {
+    setState(() {
+      if (!_expandedDays.remove(day)) _expandedDays.add(day);
+    });
+  }
   late final TransactionListController _controller;
 
   @override
@@ -200,21 +211,30 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
         itemCount: sections.length,
         itemBuilder: (BuildContext context, int index) {
           final DaySection section = sections[index];
+          final bool expanded = _expandedDays.contains(section.day);
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              TransactionDayHeader(day: section.day, items: section.all),
+              TransactionDayHeader(
+                day: section.day,
+                items: section.all,
+                expanded: expanded,
+                onToggle: () => _toggleDay(section.day),
+              ),
 
               // 같은 날 안에서 지출 -> 수입 순으로 묶는다.
-              if (section.hasExpenses) ...<Widget>[
-                if (section.needsGroupLabels)
-                  const TransactionGroupLabel(label: '지출'),
-                ...section.expenses.map(_tile),
-              ],
-              if (section.hasIncomes) ...<Widget>[
-                if (section.needsGroupLabels)
-                  const TransactionGroupLabel(label: '수입'),
-                ...section.incomes.map(_tile),
+              if (expanded) ...<Widget>[
+                if (section.hasExpenses) ...<Widget>[
+                  if (section.needsGroupLabels)
+                    const TransactionGroupLabel(label: '지출'),
+                  ...section.expenses.map(_tile),
+                ],
+                if (section.hasIncomes) ...<Widget>[
+                  if (section.needsGroupLabels)
+                    const TransactionGroupLabel(label: '수입'),
+                  ...section.incomes.map(_tile),
+                ],
               ],
             ],
           );

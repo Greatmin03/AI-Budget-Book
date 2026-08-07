@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/utils/date_range.dart';
+import 'month_picker_sheet.dart';
 
 /// 기간 필터 UI.
 ///
@@ -50,6 +51,21 @@ class PeriodSelector extends StatelessWidget {
     );
     if (picked == null) return;
     onChanged(DateRange.custom(picked.start, picked.end));
+  }
+
+  /// 달을 바로 고르게 한다.
+  ///
+  /// 화살표만 있으면 여섯 달 전으로 가는 데 여섯 번을 눌러야 한다.
+  Future<void> _pickMonth(BuildContext context) async {
+    final DateTime? picked = await showModalBottomSheet<DateTime>(
+      context: context,
+      useSafeArea: true,
+      // 기본 높이(화면 절반)로는 12개월 그리드가 들어가지 않는다.
+      isScrollControlled: true,
+      builder: (_) => MonthPickerSheet(selected: range.start),
+    );
+    if (picked == null) return;
+    onChanged(DateRange.month(picked));
   }
 
   void _select(BuildContext context, PeriodType type) {
@@ -104,14 +120,13 @@ class PeriodSelector extends StatelessWidget {
               else
                 const SizedBox(width: 12),
               Flexible(
-                child: Text(
-                  range.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: _RangeLabel(
+                  label: range.label,
+                  // 월 보기에서만 달을 고를 수 있다. 주/연 보기에서 달을
+                  // 고르게 하면 누른 순간 보기가 바뀌어 당황스럽다.
+                  onTap: range.type == PeriodType.month
+                      ? () => _pickMonth(context)
+                      : null,
                 ),
               ),
               if (showNavigation)
@@ -128,6 +143,48 @@ class PeriodSelector extends StatelessWidget {
         ),
         Divider(height: 1, color: scheme.outlineVariant),
       ],
+    );
+  }
+}
+
+/// 현재 구간 표시. 월 보기에서는 눌러서 달을 고를 수 있다.
+class _RangeLabel extends StatelessWidget {
+  const _RangeLabel({required this.label, this.onTap});
+
+  final String label;
+
+  /// null 이면 그냥 글자다.
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Text text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+    );
+    if (onTap == null) return text;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Flexible(child: text),
+            const SizedBox(width: 4),
+            // 누를 수 있다는 것을 아이콘으로 알린다.
+            Icon(
+              Icons.calendar_month_outlined,
+              size: 18,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
