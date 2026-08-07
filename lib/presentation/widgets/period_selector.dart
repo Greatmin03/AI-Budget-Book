@@ -116,18 +116,22 @@ class PeriodSelector extends StatelessWidget {
                   onPressed: () => onChanged(range.previous()),
                   icon: const Icon(Icons.chevron_left),
                   tooltip: '이전 기간',
+                  visualDensity: VisualDensity.compact,
                 )
               else
                 const SizedBox(width: 12),
-              Flexible(
-                child: _RangeLabel(
-                  label: range.label,
-                  // 월 보기에서만 달을 고를 수 있다. 주/연 보기에서 달을
-                  // 고르게 하면 누른 순간 보기가 바뀌어 당황스럽다.
-                  onTap: range.type == PeriodType.month
-                      ? () => _pickMonth(context)
-                      : null,
-                ),
+              // 날짜는 **자연 크기**를 준다.
+              //
+              // 예전에는 `Flexible` + `Spacer` 였는데, 둘이 남는 공간을
+              // 반씩 나눠 가져서 `2026년 8월` 이 잘렸다. 이 줄에서 가장
+              // 중요한 글자가 먼저 잘리면 안 된다.
+              _RangeLabel(
+                label: range.label,
+                // 월 보기에서만 달을 고를 수 있다. 주/연 보기에서 달을
+                // 고르게 하면 누른 순간 보기가 바뀌어 당황스럽다.
+                onTap: range.type == PeriodType.month
+                    ? () => _pickMonth(context)
+                    : null,
               ),
               if (showNavigation)
                 IconButton(
@@ -135,9 +139,20 @@ class PeriodSelector extends StatelessWidget {
                       range.canGoNext ? () => onChanged(range.next()) : null,
                   icon: const Icon(Icons.chevron_right),
                   tooltip: '다음 기간',
+                  visualDensity: VisualDensity.compact,
                 ),
-              const Spacer(),
-              if (trailing != null) trailing!,
+              // 남는 공간은 합계가 가져가고, 좁으면 합계가 줄어든다.
+              if (trailing != null)
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: trailing,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

@@ -358,12 +358,14 @@ class _FilterTabs extends StatelessWidget {
     final int unmatched = controller.unmatchedCancellationCount;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      padding: const EdgeInsets.fromLTRB(12, 4, 16, 8),
       child: Row(
+        // 오른쪽에 붙인다. 위의 합계와 세로로 줄이 맞는다.
+        mainAxisAlignment: MainAxisAlignment.end,
         children: <Widget>[
           for (final TransactionFilter f in TransactionFilter.values)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(left: 8),
               child: ChoiceChip(
                 label: Row(
                   mainAxisSize: MainAxisSize.min,

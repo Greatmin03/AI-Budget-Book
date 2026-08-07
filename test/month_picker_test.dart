@@ -2,6 +2,7 @@ import 'package:budget_book/core/utils/date_range.dart';
 import 'package:budget_book/presentation/widgets/month_picker_sheet.dart';
 import 'package:budget_book/presentation/widgets/period_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 월 선택.
@@ -186,6 +187,57 @@ void main() {
       expect(changed, isNotNull);
       expect(changed!.start, DateTime(2026, 3));
       expect(changed!.type, PeriodType.month);
+    });
+  });
+
+  group('좁은 화면에서도 날짜가 잘리지 않는다', () {
+    /// 이 줄에서 가장 중요한 글자는 날짜다.
+    ///
+    /// 예전에는 `Flexible` + `Spacer` 가 남는 공간을 반씩 나눠 가져서
+    /// `2026년 8월` 이 `2026년...` 으로 잘렸다.
+    Future<void> pumpAt(WidgetTester tester, double width) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PeriodSelector(
+              range: DateRange.month(DateTime(2026, 8)),
+              onChanged: (_) {},
+              trailing: const Text(
+                '+782,222원',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('320px 에서도 온전히 보인다', (WidgetTester tester) async {
+      await pumpAt(tester, 320);
+
+      expect(tester.takeException(), isNull);
+
+      final RenderParagraph label = tester.renderObject<RenderParagraph>(
+        find.text('2026년 8월'),
+      );
+      // didExceedMaxLines 가 true 면 말줄임표가 붙었다는 뜻이다.
+      expect(label.didExceedMaxLines, isFalse, reason: '날짜가 잘렸다');
+    });
+
+    testWidgets('넓은 화면에서도 마찬가지다', (WidgetTester tester) async {
+      await pumpAt(tester, 600);
+
+      final RenderParagraph label = tester.renderObject<RenderParagraph>(
+        find.text('2026년 8월'),
+      );
+      expect(label.didExceedMaxLines, isFalse);
+      expect(find.text('+782,222원'), findsOneWidget);
     });
   });
 }
