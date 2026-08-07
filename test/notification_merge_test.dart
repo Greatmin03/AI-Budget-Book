@@ -82,12 +82,27 @@ void main() {
 
   tearDown(() async => db.close());
 
-  /// 토스 알림. 가맹점 이름이 정확하다.
-  RawNotification toss(String merchant, int amount, {int minute = 7}) =>
+  /// 토스 알림. **실제 기기에서 오는 형식 그대로.**
+  ///
+  /// ```
+  /// 3,000원 결제
+  /// KB국민체크        <- 카드 이름
+  /// 더스윙(일시불)     <- 가맹점
+  /// ```
+  ///
+  /// 카드 이름이 가맹점보다 길어서, 길이로 고르면 카드 이름이 이긴다.
+  RawNotification toss(
+    String merchant,
+    int amount, {
+    int minute = 7,
+    bool cancel = false,
+  }) =>
       RawNotification(
         packageName: tossPackage,
         title: '토스',
-        text: '$merchant $amount원 결제',
+        text: '$amount원 결제${cancel ? ' 취소' : ''}\n'
+            'KB국민체크\n'
+            '$merchant(일시불)',
         postedAt: DateTime(2026, 8, 6, 10, minute),
       );
 
@@ -98,6 +113,15 @@ void main() {
         title: 'KB국민은행',
         text: '출금 $amount원\n박*민님 08/06 10:$minute 942902-**-***245 '
             '$merchant 체크카드출금 $amount 잔액1,264,862',
+        postedAt: DateTime(2026, 8, 6, 10, minute),
+      );
+
+  /// KB 취소 알림. 가맹점 이름이 없다.
+  RawNotification kbCancel(int amount, {int minute = 43}) => RawNotification(
+        packageName: kbPackage,
+        title: 'KB국민은행',
+        text: '입금 $amount원\n박*민님 08/06 10:$minute 942902-**-***245 '
+            '출금취소 $amount 잔액1,264,223',
         postedAt: DateTime(2026, 8, 6, 10, minute),
       );
 
@@ -239,6 +263,90 @@ void main() {
       final int total = (await all())
           .fold<int>(0, (int sum, Transaction t) => sum + t.amount);
       expect(total, 3000);
+    });
+  });
+
+  group('실제 기기에서 온 형식 — 토스 결제 후 취소', () {
+    /// 8/7 에 실제로 일어난 일.
+    ///
+    /// ```
+    /// 21:38  KB    통신판매_NIC 체크카드출금 3,000 잔액1,261,863
+    /// 21:38  토스   3,000원 결제 / KB국민체크 / 더스윙(일시불)
+    /// 21:43  토스   3,000원 결제 취소 / KB국민체크 / 더스윙(일시불)
+    /// 21:43  KB    출금취소 3,000 잔액1,264,223
+    /// ```
+    test('브랜드는 더스윙, 카드는 은행 이름, 취소는 자동 연결', () async {
+      // --- 결제 ---
+      await record(kb('통신판매_NIC', 3000, minute: 38));
+      await record(toss('더스윙', 3000, minute: 38));
+
+      final List<Transaction> afterPayment = await all();
+      expect(afterPayment, hasLength(1), reason: '거래는 하나');
+
+      final Transaction payment = afterPayment.single;
+      // 카드 이름을 가맹점으로 착각하면 안 된다.
+      expect(payment.brand, '더스윙');
+      // 카드 -> 계좌 연결은 은행 이름으로 등록돼 있다. 토스 이름이 남으면
+      // 이 거래는 잔액에 반영되지 않는다.
+      expect(payment.cardName, 'KB국민은행');
+      expect(payment.accountNumber, '942902-**-***245');
+
+      // --- 취소 ---
+      await record(toss('더스윙', 3000, minute: 43, cancel: true));
+      await record(kbCancel(3000, minute: 43));
+
+      final List<Transaction> afterCancel = await all();
+      expect(afterCancel, hasLength(2), reason: '결제 하나 + 취소 하나');
+
+      final Transaction cancellation =
+          afterCancel.firstWhere((Transaction t) => t.amount < 0);
+      expect(
+        cancellation.cancelsTransactionId,
+        payment.id,
+        reason: '취소가 원결제와 이어져야 한다',
+      );
+
+      final Transaction original =
+          afterCancel.firstWhere((Transaction t) => t.amount > 0);
+      expect(original.isCancelled, isTrue, reason: '원결제도 통계에서 빠진다');
+    });
+
+    test('토스만 취소를 알려도 원결제를 찾는다', () async {
+      await record(kb('통신판매_NIC', 3000, minute: 38));
+      await record(toss('더스윙', 3000, minute: 38));
+
+      // 취소는 토스만 알렸다. 계좌번호가 없고 카드 이름도 `토스` 라 다르다.
+      await record(toss('더스윙', 3000, minute: 43, cancel: true));
+
+      final List<Transaction> list = await all();
+      final Transaction cancellation =
+          list.firstWhere((Transaction t) => t.amount < 0);
+      final Transaction original =
+          list.firstWhere((Transaction t) => t.amount > 0);
+
+      // 카드 이름이 달라도 브랜드로 찾아낸다. 카드 이름을 **조건**으로
+      // 걸었다면 영영 못 만났을 것이다.
+      expect(cancellation.cancelsTransactionId, original.id);
+      expect(original.isCancelled, isTrue);
+    });
+
+    test('금액이 같은 다른 가게는 건드리지 않는다', () async {
+      await record(kb('통신판매_NIC', 3000, minute: 30));
+      await record(toss('더스윙', 3000, minute: 30));
+      await record(kb('통신판매_NIC', 3000, minute: 35));
+      await record(toss('메가커피', 3000, minute: 35));
+
+      await record(toss('더스윙', 3000, minute: 43, cancel: true));
+
+      final List<Transaction> list = await all();
+      final Transaction mega =
+          list.firstWhere((Transaction t) => t.brand == '메가MGC커피');
+      expect(mega.isCancelled, isFalse, reason: '엉뚱한 결제를 지우면 안 된다');
+
+      final Transaction swing = list.firstWhere(
+        (Transaction t) => t.brand == '더스윙' && t.amount > 0,
+      );
+      expect(swing.isCancelled, isTrue);
     });
   });
 }

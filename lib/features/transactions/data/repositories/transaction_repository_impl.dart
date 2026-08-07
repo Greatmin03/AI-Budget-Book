@@ -5,6 +5,7 @@ import '../../../../core/logging/app_logger.dart';
 import '../../../../core/utils/date_range.dart';
 import '../../domain/entities/transaction.dart';
 import '../../domain/repositories/transaction_repository.dart';
+import '../../domain/services/cancellation_matcher.dart';
 import '../datasources/transaction_local_datasource.dart';
 import '../models/transaction_dto.dart';
 
@@ -12,6 +13,7 @@ class TransactionRepositoryImpl implements TransactionRepository {
   TransactionRepositoryImpl(this._local);
 
   final TransactionLocalDataSource _local;
+  static const CancellationMatcher _matcher = CancellationMatcher();
   final StreamController<void> _changes = StreamController<void>.broadcast();
 
   @override
@@ -242,14 +244,16 @@ class TransactionRepositoryImpl implements TransactionRepository {
 
     final List<Map<String, Object?>> rows =
         await _local.findCancellationCandidates(
-      cardName: cancellation.cardName,
       // 취소는 음수로 저장된다. 원결제는 같은 크기의 양수다.
       amount: cancellation.amount.abs(),
       cancelledAtMillis: cancellation.paymentDatetime.millisecondsSinceEpoch,
       windowMillis: window.inMilliseconds,
       excludeId: id,
     );
-    return rows.map(TransactionDto.fromRow).toList();
+    return _matcher.narrow(
+      cancellation,
+      rows.map(TransactionDto.fromRow).toList(),
+    );
   }
 
   @override

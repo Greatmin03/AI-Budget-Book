@@ -321,7 +321,6 @@ class TransactionLocalDataSource {
   ///
   /// 대신 같은 카드 + 같은 금액 + 취소 이전으로 좁힌다.
   Future<List<Map<String, Object?>>> findCancellationCandidates({
-    required String? cardName,
     required int amount,
     required int cancelledAtMillis,
     required int windowMillis,
@@ -332,14 +331,12 @@ class TransactionLocalDataSource {
       'WHERE t.${DbSchema.tAmount} = ? '
       '  AND t.${DbSchema.tId} != ? '
       '  AND t.${DbSchema.tIsCancelled} = 0 '
-      "  AND COALESCE(t.${DbSchema.tCardName}, '') = ? "
       '  AND t.${DbSchema.tPaymentDatetime} <= ? '
       '  AND t.${DbSchema.tPaymentDatetime} >= ? '
       'ORDER BY t.${DbSchema.tPaymentDatetime} DESC',
       <Object?>[
         amount,
         excludeId,
-        cardName ?? '',
         cancelledAtMillis,
         cancelledAtMillis - windowMillis,
       ],

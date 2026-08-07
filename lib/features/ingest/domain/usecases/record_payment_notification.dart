@@ -20,6 +20,7 @@ import '../../../settlements/domain/entities/deposit.dart';
 import '../../../settlements/domain/repositories/settlement_repository.dart';
 import '../../../transactions/domain/entities/transaction.dart';
 import '../../../transactions/domain/repositories/transaction_repository.dart';
+import '../../../transactions/domain/services/cancellation_matcher.dart';
 import '../services/notification_merger.dart';
 import '../entities/ingest_result.dart';
 import '../repositories/ingest_failure_repository.dart';
@@ -78,6 +79,9 @@ class RecordPaymentNotification {
 
   /// 여러 앱이 알린 같은 결제를 하나로 합친다.
   final NotificationMerger _merger;
+
+  /// 취소가 되돌린 원결제를 좁힌다.
+  static const CancellationMatcher _matcher = CancellationMatcher();
 
   /// 입금 알림 저장소(정산 후보).
   final DepositRepository _deposits;
@@ -425,53 +429,28 @@ class RecordPaymentNotification {
         window: _autoLinkWindow,
       );
 
-      final List<Transaction> narrowed = _narrowByBrand(
-        cancellation,
-        candidates,
-      );
+      // 자동 연결은 화면보다 한 단계 엄격하다. 아무도 확인하지 않으므로
+      // 확실할 때만 잇는다.
+      final Transaction? target =
+          _matcher.autoLinkTarget(cancellation, candidates);
 
-      if (narrowed.isEmpty) {
-        AppLogger.i('취소 원결제를 찾지 못했습니다: '
-            '${cancellation.amount.abs()}원 — 사용자 확인 필요');
-        return;
-      }
-      if (narrowed.length > 1) {
-        AppLogger.i('취소 후보가 ${narrowed.length}개입니다: '
-            '${cancellation.amount.abs()}원 — 사용자 확인 필요');
+      if (target == null) {
+        AppLogger.i('취소 원결제를 자동으로 정하지 못했습니다: '
+            '${cancellation.amount.abs()}원 '
+            '(후보 ${candidates.length}개) — 사용자 확인 필요');
         return;
       }
 
       await _transactions.linkCancellation(
         cancellationId: id,
-        originalId: narrowed.single.id!,
+        originalId: target.id!,
       );
-      AppLogger.i('취소 자동 연결: ${narrowed.single.displayName} '
+      AppLogger.i('취소 자동 연결: ${target.displayName} '
           '${cancellation.amount.abs()}원');
     } on Object catch (e, stack) {
       // 연결 실패가 거래 기록을 되돌리지는 않는다.
       AppLogger.e('취소 연결 실패', e, stack);
     }
-  }
-
-  /// 취소 알림이 가맹점을 알려 줬다면 그것으로 후보를 좁힌다.
-  ///
-  /// 은행 알림에는 가맹점이 없다(`미확인 가맹점`). 그때는 좁히지 않고
-  /// 카드·금액·시각만으로 판단한다.
-  ///
-  /// 반면 토스처럼 `메가커피 결제 취소` 를 주는 앱이면 그 이름을 써야 한다.
-  /// **이름을 알고 있는데 맞는 후보가 없다면 잇지 않는다** — 다른 가게의
-  /// 같은 금액 결제를 지우는 것보다 그냥 두는 편이 낫다.
-  List<Transaction> _narrowByBrand(
-    Transaction cancellation,
-    List<Transaction> candidates,
-  ) {
-    if (cancellation.merchantRaw == ParsedPayment.unknownMerchantLabel) {
-      return candidates;
-    }
-
-    return candidates
-        .where((Transaction t) => t.brand == cancellation.brand)
-        .toList();
   }
 
   /// 자동 연결을 허용하는 기간.

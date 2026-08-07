@@ -29,16 +29,18 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
-  /// v16 -> v17: `transactions.cancels_transaction_id` 추가
-  ///            (취소가 어느 결제를 되돌린 것인지. 브랜드로 맞추지 않는다)
-  /// v15 -> v16: `transactions.account_number`, `balance_after`,
-  ///            `merged_sources` 추가 (여러 앱 알림 병합)
-  /// v14 -> v15: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정
-  /// v13 -> v14: `asset_transfers.to_account_id` 추가
-  ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
   /// v12 -> v13: `unmapped_place_categories` 추가
   ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
-  static const int databaseVersion = 17;
+  /// v13 -> v14: `asset_transfers.to_account_id` 추가
+  ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
+  /// v14 -> v15: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정
+  /// v15 -> v16: `transactions.account_number`, `balance_after`,
+  ///            `merged_sources` 추가 (여러 앱 알림 병합)
+  /// v16 -> v17: `transactions.cancels_transaction_id` 추가
+  ///            (취소가 어느 결제를 되돌린 것인지. 브랜드로 맞추지 않는다)
+  /// v17 -> v18: 토스 알림에서 카드 이름을 가맹점으로 잘못 뽑은 것 교정
+  /// v18 -> v19: 카드 이름이 바로잡힌 뒤 취소 연결 재시도 (계좌번호 기준)
+  static const int databaseVersion = 19;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -1012,6 +1014,96 @@ class DbSchema {
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
       )
       ''',
+    ],
+    19: <String>[
+      // 카드 이름이 바로잡혔으니 취소 연결을 다시 시도한다.
+      //
+      // v17 은 카드 이름으로 맞췄는데, 토스가 만든 거래는 카드 이름이
+      // `토스` 라서 은행 결제와 절대 만나지 못했다.
+      //
+      // 이번에는 **계좌번호**를 우선한다. 은행만 주는 값이고 결제와 취소가
+      // 같은 계좌에서 일어나므로 정확히 일치한다.
+      '''
+      UPDATE $tableTransactions SET $tCancelsTransactionId = (
+        SELECT o.$tId FROM $tableTransactions o
+        WHERE o.$tAmount = -$tableTransactions.$tAmount
+          AND o.$tId != $tableTransactions.$tId
+          AND o.$tIsCancelled = 0
+          AND o.$tAccountNumber = $tableTransactions.$tAccountNumber
+          AND o.$tPaymentDatetime <= $tableTransactions.$tPaymentDatetime
+          AND o.$tPaymentDatetime >=
+              $tableTransactions.$tPaymentDatetime - 604800000
+        ORDER BY o.$tPaymentDatetime DESC
+        LIMIT 1
+      )
+      WHERE $tIsCancelled = 1 AND $tAmount < 0
+        AND $tCancelsTransactionId IS NULL
+        AND $tAccountNumber IS NOT NULL
+        AND (
+          SELECT COUNT(*) FROM $tableTransactions o
+          WHERE o.$tAmount = -$tableTransactions.$tAmount
+            AND o.$tId != $tableTransactions.$tId
+            AND o.$tIsCancelled = 0
+            AND o.$tAccountNumber = $tableTransactions.$tAccountNumber
+            AND o.$tPaymentDatetime <= $tableTransactions.$tPaymentDatetime
+            AND o.$tPaymentDatetime >=
+                $tableTransactions.$tPaymentDatetime - 604800000
+        ) = 1
+      ''',
+
+      // 이어진 원결제를 통계에서 뺀다.
+      '''
+      UPDATE $tableTransactions SET $tIsCancelled = 1
+      WHERE $tId IN (
+        SELECT $tCancelsTransactionId FROM $tableTransactions
+        WHERE $tCancelsTransactionId IS NOT NULL
+      )
+      ''',
+    ],
+    18: <String>[
+      // 토스 알림은 이렇게 온다.
+      //
+      //   3,000원 결제
+      //   KB국민체크      <- 카드 이름
+      //   더스윙(일시불)   <- 가맹점
+      //
+      // 파서가 가장 긴 한글 덩어리를 골라서 카드 이름을 가맹점으로 삼았고,
+      // 병합 규칙이 "토스 브랜드가 은행보다 낫다" 라서 멀쩡하던 은행 쪽
+      // 가맹점명을 덮어 버렸다.
+      //
+      // 카드 이름이 브랜드로 남은 거래는 원본 거래명으로 되돌린다. 원본은
+      // 은행이 준 값이라 완벽하진 않지만 카드 이름보다는 낫고, 브랜드
+      // 재정규화로 다시 다듬을 수 있다.
+      '''
+      UPDATE $tableTransactions
+      SET $tBrand = $tMerchantRaw
+      WHERE $tBrand != $tMerchantRaw
+        AND $tBrand LIKE '%체크'
+      ''',
+
+      // 카드 이름이 `토스` 로 남은 거래를 은행 이름으로 되돌린다.
+      //
+      // 카드 -> 계좌 연결은 은행 이름으로 등록돼 있다. 토스 이름이 남으면
+      // 그 거래는 잔액에 반영되지 않는다. 같은 계좌번호를 쓰는 다른 거래의
+      // 카드 이름을 빌려 온다 — 같은 계좌면 같은 카드다.
+      '''
+      UPDATE $tableTransactions SET $tCardName = (
+        SELECT o.$tCardName FROM $tableTransactions o
+        WHERE o.$tAccountNumber = $tableTransactions.$tAccountNumber
+          AND o.$tCardName IS NOT NULL
+          AND o.$tCardName != '토스'
+        LIMIT 1
+      )
+      WHERE $tCardName = '토스'
+        AND $tAccountNumber IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM $tableTransactions o
+          WHERE o.$tAccountNumber = $tableTransactions.$tAccountNumber
+            AND o.$tCardName IS NOT NULL
+            AND o.$tCardName != '토스'
+        )
+      ''',
+
     ],
     17: <String>[
       'ALTER TABLE $tableTransactions '

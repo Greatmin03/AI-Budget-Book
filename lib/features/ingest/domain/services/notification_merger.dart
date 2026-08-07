@@ -60,23 +60,36 @@ class NotificationMerger {
       changed = true;
     }
 
-    // 2) 계좌 정보는 **가진 쪽**에서 가져온다. 이미 있으면 덮지 않는다.
+    // 2) 계좌 정보는 **가진 쪽**에서 가져온다.
     if (incomingTrait.providesAccountDetails) {
-      if (merged.accountNumber == null && incoming.accountNumber != null) {
+      if (incoming.accountNumber != null &&
+          merged.accountNumber != incoming.accountNumber) {
         merged = merged.copyWith(accountNumber: incoming.accountNumber);
         changed = true;
       }
-      if (merged.balanceAfter == null && incoming.balanceAfter != null) {
+      if (incoming.balanceAfter != null &&
+          merged.balanceAfter != incoming.balanceAfter) {
         merged = merged.copyWith(balanceAfter: incoming.balanceAfter);
         changed = true;
       }
-    }
 
-    // 3) 카드 이름도 비어 있을 때만 채운다.
-    if ((merged.cardName == null || merged.cardName!.trim().isEmpty) &&
-        incoming.cardName != null) {
-      merged = merged.copyWith(cardName: incoming.cardName);
-      changed = true;
+      // 카드 이름도 **은행 것이 이긴다.**
+      //
+      // 토스는 같은 카드를 `토스` 라고 부르고 은행은 `KB국민은행` 이라고
+      // 부른다. 카드 -> 계좌 연결은 은행 이름으로 등록돼 있으므로, 토스
+      // 이름이 남으면 그 거래는 잔액에 반영되지 않는다.
+      if (incoming.cardName != null &&
+          incoming.cardName!.trim().isNotEmpty &&
+          merged.cardName != incoming.cardName) {
+        merged = merged.copyWith(cardName: incoming.cardName);
+        changed = true;
+      }
+    } else if (merged.cardName == null || merged.cardName!.trim().isEmpty) {
+      // 계좌 정보를 주지 않는 앱의 카드 이름은 비어 있을 때만 쓴다.
+      if (incoming.cardName != null) {
+        merged = merged.copyWith(cardName: incoming.cardName);
+        changed = true;
+      }
     }
 
     // 4) 어느 앱들이 이 거래를 알렸는지 남긴다.

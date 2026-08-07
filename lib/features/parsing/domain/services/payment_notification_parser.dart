@@ -559,11 +559,27 @@ class PaymentNotificationParser {
 
     if (candidates.isEmpty) return ParsedPayment.unknownMerchantLabel;
 
+    // 카드 이름을 가맹점으로 착각하지 않는다.
+    //
+    // 토스 알림은 이렇게 온다.
+    //
+    // ```
+    // 3,000원 결제 취소
+    // KB국민체크        <- 카드 이름
+    // 더스윙(일시불)     <- 가맹점
+    // ```
+    //
+    // 길이로 고르면 `KB국민체크`(6자)가 `더스윙`(3자)을 이긴다. 카드 이름은
+    // 뒤에 두고, 다른 후보가 하나라도 있으면 쓰지 않는다.
+    final List<String> notCards =
+        candidates.where((String c) => !_looksLikeCardName(c)).toList();
+    final List<String> usable = notCards.isNotEmpty ? notCards : candidates;
+
     // 아는 브랜드가 후보에 있으면 그것을 고른다.
     // 길이 규칙보다 우선한다 — 지점명이 브랜드보다 긴 경우가 흔하다.
     final bool Function(String)? recognize = recognizeBrand;
     if (recognize != null) {
-      final List<String> known = candidates.where(recognize).toList();
+      final List<String> known = usable.where(recognize).toList();
       if (known.isNotEmpty) {
         // 여러 개면 더 구체적인(긴) 쪽을 고른다.
         known.sort((String a, String b) => b.length.compareTo(a.length));
@@ -573,8 +589,8 @@ class PaymentNotificationParser {
 
     // 한글 포함 후보를 우선하고, 그중 가장 긴 것을 고른다.
     final List<String> korean =
-        candidates.where(TextNormalizer.hasKorean).toList();
-    final List<String> pool = korean.isNotEmpty ? korean : candidates;
+        usable.where(TextNormalizer.hasKorean).toList();
+    final List<String> pool = korean.isNotEmpty ? korean : usable;
     pool.sort((String a, String b) => b.length.compareTo(a.length));
 
     return _capped(pool.first);
@@ -583,6 +599,17 @@ class PaymentNotificationParser {
   /// 가맹점명이 지나치게 길면 자른다(알림 전문이 통째로 들어오는 경우).
   static String _capped(String value) =>
       value.length > 40 ? value.substring(0, 40) : value;
+
+  /// 카드/계좌 이름처럼 보이는가.
+  ///
+  /// `KB국민체크`, `신한카드`, `토스뱅크` 같은 것들이다. 가맹점 이름이
+  /// 우연히 `카드` 로 끝날 수 있으므로(`카드마트`) **제거하지 않고 뒤로
+  /// 미룬다** — 다른 후보가 없으면 이것이라도 쓴다.
+  static bool _looksLikeCardName(String value) =>
+      _cardNameSuffix.hasMatch(value);
+
+  static final RegExp _cardNameSuffix =
+      RegExp(r'(체크|카드|은행|뱅크|페이|증권)$');
 
   bool _isMerchantCandidate(String value) {
     if (value.length < 2) return false;
