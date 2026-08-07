@@ -379,7 +379,7 @@ class RecordPaymentNotification {
     }
     if (existing == null) return null;
 
-    final Transaction? updated = _merger.merge(
+    Transaction? updated = _merger.merge(
       existing: existing,
       incoming: payment,
       incomingBrand: resolution.brand,
@@ -387,6 +387,19 @@ class RecordPaymentNotification {
       incomingSubcategory:
           resolution.needsReview ? null : resolution.subcategory,
     );
+
+    // 카드 이름이 바뀌었으면 **계좌 연결도 다시 찾는다.**
+    //
+    // 토스가 먼저 알리면 카드 이름이 `토스` 로 잡히고, 그 이름에는 연결된
+    // 계좌가 없어 `account_id` 가 비어 있다. 나중에 은행 알림이 병합되며
+    // 이름이 `KB국민은행` 으로 바뀌어도, 다시 찾지 않으면 그 거래는 영영
+    // 잔액에 반영되지 않는다.
+    if (updated != null && updated.cardName != existing.cardName) {
+      final int? accountId = await _resolveAccount(updated.cardName);
+      if (accountId != null && accountId != updated.accountId) {
+        updated = updated.copyWith(accountId: accountId);
+      }
+    }
 
     if (updated != null) {
       await _transactions.update(updated);

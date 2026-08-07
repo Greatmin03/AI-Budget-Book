@@ -40,7 +40,8 @@ class DbSchema {
   ///            (취소가 어느 결제를 되돌린 것인지. 브랜드로 맞추지 않는다)
   /// v17 -> v18: 토스 알림에서 카드 이름을 가맹점으로 잘못 뽑은 것 교정
   /// v18 -> v19: 카드 이름이 바로잡힌 뒤 취소 연결 재시도 (계좌번호 기준)
-  static const int databaseVersion = 19;
+  /// v19 -> v20: 카드 연결이 있는데 `account_id` 가 비어 있던 거래 채우기
+  static const int databaseVersion = 20;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -1013,6 +1014,25 @@ class DbSchema {
         FROM $tableTransactions c
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
       )
+      ''',
+    ],
+    20: <String>[
+      // 카드 이름은 맞는데 계좌가 안 붙은 거래를 채운다.
+      //
+      // 토스가 먼저 알린 거래는 카드 이름이 `토스` 로 잡혀 연결을 못 찾았다.
+      // v18 이 이름을 `KB국민은행` 으로 바로잡았지만 계좌는 그대로 비어
+      // 있었고, 그 거래는 잔액에 반영되지 않았다.
+      '''
+      UPDATE $tableTransactions SET $tAccountId = (
+        SELECT l.$calAccountId FROM $tableCardAccountLinks l
+        WHERE l.$calCardName = $tableTransactions.$tCardName
+      )
+      WHERE $tAccountId IS NULL
+        AND $tCardName IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM $tableCardAccountLinks l
+          WHERE l.$calCardName = $tableTransactions.$tCardName
+        )
       ''',
     ],
     19: <String>[

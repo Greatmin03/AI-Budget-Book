@@ -4,6 +4,7 @@ import 'package:budget_book/features/ingest/data/datasources/ingest_failure_loca
 import 'package:budget_book/features/ingest/data/repositories/ingest_failure_repository_impl.dart';
 import 'package:budget_book/features/ingest/domain/entities/ingest_result.dart';
 import 'package:budget_book/features/ingest/domain/usecases/record_payment_notification.dart';
+import 'package:budget_book/features/assets/data/repositories/card_account_link_repository_impl.dart';
 import 'package:budget_book/features/merchants/data/datasources/merchant_local_datasource.dart';
 import 'package:budget_book/features/merchants/data/repositories/merchant_repository_impl.dart';
 import 'package:budget_book/features/merchants/domain/services/brand_extractor.dart';
@@ -347,6 +348,58 @@ void main() {
         (Transaction t) => t.brand == '더스윙' && t.amount > 0,
       );
       expect(swing.isCancelled, isTrue);
+    });
+  });
+
+  group('병합으로 카드 이름이 바뀌면 계좌도 다시 찾는다', () {
+    test('토스가 먼저 알려도 잔액에 반영된다', () async {
+      // 사용자가 KB 카드를 계좌에 연결해 두었다.
+      final int accountId = (await db.insert(DbSchema.tableAccounts,
+          <String, Object?>{
+            DbSchema.acName: 'KB 입출금',
+            DbSchema.acType: 'checking',
+            DbSchema.acBalance: 1000000,
+            DbSchema.acBalanceAsOf: 0,
+            DbSchema.acCreatedAt: 0,
+            DbSchema.acUpdatedAt: 0,
+          }));
+      await db.insert(DbSchema.tableCardAccountLinks, <String, Object?>{
+        DbSchema.calCardName: 'KB국민은행',
+        DbSchema.calAccountId: accountId,
+        DbSchema.calCreatedAt: 0,
+      });
+
+      final RecordPaymentNotification withLinks = RecordPaymentNotification(
+        parser: PaymentNotificationParser(
+          recognizeBrand:
+              const BrandExtractor(BrandSeed.definitions).recognizes,
+        ),
+        merchants: MerchantRepositoryImpl(MerchantLocalDataSource(db)),
+        transactions: transactions,
+        failures: IngestFailureRepositoryImpl(IngestFailureLocalDataSource(db)),
+        settings: await () async {
+          final SettingsRepositoryImpl s =
+              SettingsRepositoryImpl(SettingsLocalDataSource(db));
+          await s.load();
+          return s;
+        }(),
+        deposits: DepositRepositoryImpl(DepositLocalDataSource(db)),
+        recurring: RecurringRepositoryImpl(db),
+        cardLinks: CardAccountLinkRepositoryImpl(db),
+      );
+
+      // 토스가 먼저 온다. 카드 이름이 `토스` 라 연결을 못 찾는다.
+      await withLinks(toss('더스윙', 3000, minute: 38));
+      Transaction tx = (await all()).single;
+      expect(tx.accountId, isNull, reason: '아직 붙을 계좌가 없다');
+
+      // 은행이 병합되며 카드 이름이 바뀐다.
+      await withLinks(kb('통신판매_NIC', 3000, minute: 38));
+      tx = (await all()).single;
+
+      expect(tx.cardName, 'KB국민은행');
+      // 여기서 다시 찾지 않으면 이 거래는 영영 잔액에 반영되지 않는다.
+      expect(tx.accountId, accountId);
     });
   });
 }
