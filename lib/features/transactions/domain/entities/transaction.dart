@@ -277,7 +277,12 @@ class Transaction {
   /// 소비 통계에 포함되는 거래인지.
   ///
   /// 자산 이동(계좌 간 이동)과 수입은 소비가 아니다.
-  bool get countsAsSpending => !isAssetTransfer && !isIncome;
+  /// 소비 통계에 들어가는가.
+  ///
+  /// `spendingOnly` SQL 조각과 **같은 조건이어야 한다.** 화면과 통계가
+  /// 다른 기준을 쓰면 같은 기간에 다른 금액이 보인다.
+  bool get countsAsSpending =>
+      !isAssetTransfer && !isIncome && !isCancelled;
 
   bool get isInstallment => installmentMonths > 0;
 

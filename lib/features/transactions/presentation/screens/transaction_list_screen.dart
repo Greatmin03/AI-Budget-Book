@@ -8,6 +8,8 @@ import 'manual_entry_screen.dart';
 import '../../domain/entities/transaction.dart';
 import '../../domain/usecases/apply_user_correction.dart';
 import '../controllers/transaction_list_controller.dart';
+import '../widgets/cancellation_link_sheet.dart';
+import '../widgets/cancellation_tile.dart';
 import '../widgets/transaction_day_header.dart';
 import '../widgets/transaction_group_label.dart';
 import '../widgets/transaction_edit_sheet.dart';
@@ -163,6 +165,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
               onChanged: _controller.changeRange,
               trailing: TransactionPeriodTotals(controller: _controller),
             ),
+            _FilterTabs(controller: _controller),
             Expanded(child: _buildBody(context)),
           ],
           ),
@@ -184,6 +187,72 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
         onTap: () => _openEditSheet(tx),
       );
 
+  /// 취소 목록. 원결제 연결을 관리한다.
+  Widget _buildCancellations(BuildContext context) {
+    final List<Transaction> items = _controller.transactions;
+    if (items.isEmpty) {
+      return const _Message(
+        icon: Icons.undo_outlined,
+        message: '이 기간에는 취소된 거래가 없습니다.',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _controller.load,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (BuildContext context, int index) {
+          final Transaction cancellation = items[index];
+          return CancellationTile(
+            cancellation: cancellation,
+            original: _controller.originalOf(cancellation),
+            onLink: () => _linkCancellation(cancellation),
+            onUnlink: () => _unlinkCancellation(cancellation),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 어느 결제를 취소한 것인지 사용자가 고른다.
+  Future<void> _linkCancellation(Transaction cancellation) async {
+    final List<Transaction> candidates =
+        await _controller.candidatesFor(cancellation);
+    if (!mounted) return;
+
+    final Transaction? picked = await showModalBottomSheet<Transaction>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => CancellationLinkSheet(
+        cancellation: cancellation,
+        candidates: candidates,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    await _controller.linkCancellation(
+      cancellation: cancellation,
+      original: picked,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('"${picked.displayName}" 결제를 취소로 처리했습니다.'),
+      ),
+    );
+  }
+
+  Future<void> _unlinkCancellation(Transaction cancellation) async {
+    await _controller.unlinkCancellation(cancellation);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('연결을 해제했습니다. 원결제가 통계로 돌아옵니다.')),
+    );
+  }
+
   Widget _buildBody(BuildContext context) {
     if (_controller.isLoading && _controller.transactions.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -200,6 +269,10 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
         message: '이 기간에는 기록된 결제가 없습니다.\n'
             '카드 결제 알림이 오면 자동으로 기록됩니다.',
       );
+    }
+
+    if (_controller.filter == TransactionFilter.cancelled) {
+      return _buildCancellations(context);
     }
 
     final List<DaySection> sections = _controller.daySections;
@@ -268,6 +341,64 @@ class _Message extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 일반 / 전체 / 취소.
+class _FilterTabs extends StatelessWidget {
+  const _FilterTabs({required this.controller});
+
+  final TransactionListController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final int unmatched = controller.unmatchedCancellationCount;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
+        children: <Widget>[
+          for (final TransactionFilter f in TransactionFilter.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(f.label),
+                    // 원결제를 못 찾은 취소가 있으면 알린다. 그대로 두면
+                    // 쓰지도 않은 돈이 통계에 남는다.
+                    if (f == TransactionFilter.cancelled && unmatched > 0) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.error,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$unmatched',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onError,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                selected: controller.filter == f,
+                onSelected: (_) => controller.changeFilter(f),
+              ),
+            ),
+        ],
       ),
     );
   }

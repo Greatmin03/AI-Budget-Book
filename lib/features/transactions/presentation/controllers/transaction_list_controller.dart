@@ -8,6 +8,25 @@ import '../../domain/entities/transaction.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/usecases/apply_user_correction.dart';
 
+/// 거래 목록에서 무엇을 보여 줄지.
+enum TransactionFilter {
+  /// **실제 소비만.** 취소된 것은 양쪽 다 숨긴다.
+  ///
+  /// 취소된 결제와 그 취소 건이 나란히 보이면 "썼다가 돌려받았다" 를 매번
+  /// 다시 읽어야 한다. 대부분의 경우 알고 싶은 것은 그게 아니다.
+  normal('일반'),
+
+  /// 모든 거래. 취소도 정산도 그대로 보여 준다(감사용).
+  all('전체'),
+
+  /// 취소된 거래만. 원결제 연결을 관리한다.
+  cancelled('취소');
+
+  const TransactionFilter(this.label);
+
+  final String label;
+}
+
 /// 거래 목록 화면 상태.
 ///
 /// 외부 상태관리 패키지 없이 [ChangeNotifier] 만 사용한다.
@@ -26,12 +45,80 @@ class TransactionListController extends ChangeNotifier {
   late final StreamSubscription<void> _subscription;
 
   DateRange _range = DateRange.month();
+  TransactionFilter _filter = TransactionFilter.normal;
   List<Transaction> _transactions = const <Transaction>[];
   bool _isLoading = false;
   String? _error;
 
+  /// 화면이 닫힌 뒤에도 조회가 끝나면 알림을 보내려 한다.
+  ///
+  /// 저장 알림 -> 자동 갱신 구조라서, 화면을 닫는 순간 진행 중이던 조회가
+  /// 뒤늦게 끝나면 dispose 된 컨트롤러에 알림이 간다.
+  bool _disposed = false;
+
   DateRange get range => _range;
-  List<Transaction> get transactions => _transactions;
+  TransactionFilter get filter => _filter;
+
+  void changeFilter(TransactionFilter filter) {
+    if (_filter == filter) return;
+    _filter = filter;
+    _notify();
+  }
+
+  /// 기간 안의 **모든** 거래. 합계는 필터와 무관하게 이 목록으로 계산한다.
+  ///
+  /// 필터는 보여 주는 목록만 바꾼다. 취소 탭을 보는 동안 이번 달 지출이
+  /// 0원으로 바뀌면 안 된다.
+  List<Transaction> get allTransactions => _transactions;
+
+  /// 지금 필터에 해당하는 거래.
+  List<Transaction> get transactions {
+    return switch (_filter) {
+      TransactionFilter.normal =>
+        _transactions.where((Transaction t) => !t.isCancelled).toList(),
+      TransactionFilter.all => _transactions,
+      TransactionFilter.cancelled => _transactions
+          .where((Transaction t) => t.isCancelled && t.amount < 0)
+          .toList(),
+    };
+  }
+
+  /// 취소 탭에 보여 줄 것이 있는가.
+  int get cancelledCount => _transactions
+      .where((Transaction t) => t.isCancelled && t.amount < 0)
+      .length;
+
+  /// 원결제를 아직 못 찾은 취소 수. 배지로 알린다.
+  int get unmatchedCancellationCount => _transactions
+      .where((Transaction t) => t.isUnmatchedCancellation)
+      .length;
+
+  /// 이 취소가 되돌린 원결제. 목록 안에서 찾는다.
+  Transaction? originalOf(Transaction cancellation) {
+    final int? id = cancellation.cancelsTransactionId;
+    if (id == null) return null;
+    for (final Transaction t in _transactions) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  /// 이 취소가 되돌렸을 법한 원결제 후보.
+  Future<List<Transaction>> candidatesFor(Transaction cancellation) =>
+      _repository.findCancellationCandidates(cancellation);
+
+  Future<void> linkCancellation({
+    required Transaction cancellation,
+    required Transaction original,
+  }) async {
+    await _repository.linkCancellation(
+      cancellationId: cancellation.id!,
+      originalId: original.id!,
+    );
+  }
+
+  Future<void> unlinkCancellation(Transaction cancellation) =>
+      _repository.unlinkCancellation(cancellation.id!);
   bool get isLoading => _isLoading;
   String? get error => _error;
 
@@ -84,11 +171,11 @@ class TransactionListController extends ChangeNotifier {
     }).toList();
   }
 
-  /// 날짜별로 묶은 목록(섹션 헤더용).
+  /// 날짜별로 묶은 목록(섹션 헤더용). **필터가 적용된 목록**을 쓴다.
   Map<DateTime, List<Transaction>> get groupedByDay {
     final Map<DateTime, List<Transaction>> grouped =
         <DateTime, List<Transaction>>{};
-    for (final Transaction tx in _transactions) {
+    for (final Transaction tx in transactions) {
       final DateTime day = DateTime(
         tx.paymentDatetime.year,
         tx.paymentDatetime.month,
@@ -102,7 +189,7 @@ class TransactionListController extends ChangeNotifier {
   Future<void> load() async {
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notify();
 
     try {
       _transactions = await _repository.findByRange(_range);
@@ -112,8 +199,13 @@ class TransactionListController extends ChangeNotifier {
       _transactions = const <Transaction>[];
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _notify();
     }
+  }
+
+  void _notify() {
+    if (_disposed) return;
+    notifyListeners();
   }
 
   Future<void> changeRange(DateRange range) async {
@@ -183,6 +275,7 @@ class TransactionListController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _subscription.cancel();
     super.dispose();
   }
