@@ -48,6 +48,9 @@ class TransactionDto {
           TransactionDirection.fromCode(row[DbSchema.tDirection] as String?),
       account: row[DbSchema.tAccount] as String?,
       accountId: row[DbSchema.tAccountId] as int?,
+      accountNumber: row[DbSchema.tAccountNumber] as String?,
+      balanceAfter: row[DbSchema.tBalanceAfter] as int?,
+      mergedSources: _splitSources(row[DbSchema.tMergedSources] as String?),
       assetKind: row[DbSchema.tAssetKind] as String?,
       aiStatus: AiStatus.fromCode(row[DbSchema.tAiStatus] as String?),
       aiProcessedAt: _toDate(row[DbSchema.tAiProcessedAt]),
@@ -89,6 +92,10 @@ class TransactionDto {
       DbSchema.tDirection: tx.direction.code,
       DbSchema.tAccount: tx.account,
       DbSchema.tAccountId: tx.accountId,
+      DbSchema.tAccountNumber: tx.accountNumber,
+      DbSchema.tBalanceAfter: tx.balanceAfter,
+      DbSchema.tMergedSources:
+          tx.mergedSources.isEmpty ? null : tx.mergedSources.join(','),
       DbSchema.tAssetKind: tx.assetKind,
       DbSchema.tAiStatus: tx.aiStatus.code,
       DbSchema.tAiProcessedAt: tx.aiProcessedAt?.millisecondsSinceEpoch,
@@ -109,4 +116,14 @@ class TransactionDto {
     if (value is num) return value.round();
     return 0;
   }
+}
+
+/// 쉼표로 이어 둔 패키지 목록을 되돌린다.
+List<String> _splitSources(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return const <String>[];
+  return raw
+      .split(',')
+      .map((String s) => s.trim())
+      .where((String s) => s.isNotEmpty)
+      .toList();
 }

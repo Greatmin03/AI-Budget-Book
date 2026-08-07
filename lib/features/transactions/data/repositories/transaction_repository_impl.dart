@@ -51,6 +51,28 @@ class TransactionRepositoryImpl implements TransactionRepository {
     return transaction.copyWith(id: id);
   }
 
+  /// 같은 결제를 다른 앱이 알렸다고 볼 시각 차이.
+  ///
+  /// 은행 알림은 분 단위로만 시각을 주므로(`08/06 10:07`) 초가 항상 0이다.
+  /// 두 앱의 알림이 분 경계를 사이에 두면 60초까지 벌어질 수 있어 넉넉히
+  /// 잡되, 같은 금액의 다른 결제를 삼키지 않도록 2분을 넘기지 않는다.
+  static const int _mergeWindowSeconds = 120;
+
+  @override
+  Future<Transaction?> findMergeTarget({
+    required int amount,
+    required DateTime paymentDatetime,
+    required String sourcePackage,
+  }) async {
+    final Map<String, Object?>? row = await _local.findMergeTarget(
+      amount: amount,
+      paymentDatetime: paymentDatetime,
+      sourcePackage: sourcePackage,
+      windowSeconds: _mergeWindowSeconds,
+    );
+    return row == null ? null : TransactionDto.fromRow(row);
+  }
+
   /// 다른 앱이 알린 **같은 결제**인지 판단한다.
   ///
   /// 직접 입력은 검사하지 않는다. 사용자가 의도적으로 추가한 거래를

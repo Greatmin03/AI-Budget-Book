@@ -20,6 +20,7 @@ import '../../../settlements/domain/entities/deposit.dart';
 import '../../../settlements/domain/repositories/settlement_repository.dart';
 import '../../../transactions/domain/entities/transaction.dart';
 import '../../../transactions/domain/repositories/transaction_repository.dart';
+import '../services/notification_merger.dart';
 import '../entities/ingest_result.dart';
 import '../repositories/ingest_failure_repository.dart';
 
@@ -48,7 +49,9 @@ class RecordPaymentNotification {
     CardAccountLinkRepository? cardLinks,
     RuleBasedClassifier ruleBased = const RuleBasedClassifier(),
     BrandLearningPolicy policy = const BrandLearningPolicy(),
+    NotificationMerger merger = const NotificationMerger(),
   })  : _policy = policy,
+        _merger = merger,
         _lookupBrandIndustry = lookupIndustry,
         _cardLinks = cardLinks,
         _deposits = deposits,
@@ -72,6 +75,9 @@ class RecordPaymentNotification {
 
   /// 이체/송금 거래명을 브랜드로 학습하지 않도록 막는 정책.
   final BrandLearningPolicy _policy;
+
+  /// 여러 앱이 알린 같은 결제를 하나로 합친다.
+  final NotificationMerger _merger;
 
   /// 입금 알림 저장소(정산 후보).
   final DepositRepository _deposits;
@@ -247,16 +253,24 @@ class RecordPaymentNotification {
     // -------------------------------------------- 2) 가맹점 조회 / 3) 분류
     final _Resolution resolution = await _resolve(payment);
 
-    // ------------------------------------------- 4) 정기결제 규칙 연결(메타데이터)
+    // ---------------------------- 4) 다른 앱이 이미 알린 결제인지 확인(병합)
+    //
+    // 같은 결제를 토스와 은행이 각각 알린다. 둘 다 저장하면 가계부가 두 배가
+    // 되고, 하나를 버리면 브랜드나 계좌 정보 중 하나를 잃는다.
+    // **거래는 하나만 남기고 정보만 합친다.**
+    final IngestResult? merged = await _tryMerge(payment, resolution);
+    if (merged != null) return merged;
+
+    // ------------------------------------------- 5) 정기결제 규칙 연결(메타데이터)
     final RecurringRule? rule = await _matchRecurringRule(
       brand: resolution.brand,
       amount: payment.amount,
     );
 
-    // ------------------------------------------------- 5) 잔액 반영 계좌 확인
+    // ------------------------------------------------- 6) 잔액 반영 계좌 확인
     final int? accountId = await _resolveAccount(payment.cardName);
 
-    // ---------------------------------------------------------- 6) 거래 저장
+    // ---------------------------------------------------------- 7) 거래 저장
     final Transaction transaction = Transaction(
       accountId: accountId,
       recurringRuleId: rule?.id,
@@ -273,6 +287,8 @@ class RecordPaymentNotification {
       paymentDatetime: payment.paymentDatetime,
       rawNotification: payment.rawNotification,
       sourcePackage: payment.sourcePackage,
+      accountNumber: payment.accountNumber,
+      balanceAfter: payment.balanceAfter,
       fingerprint: Transaction.buildFingerprint(
         merchantRaw: payment.merchantRaw,
         signedAmount: payment.signedAmount,
@@ -367,6 +383,54 @@ class RecordPaymentNotification {
       // 취소 처리 실패가 거래 기록을 되돌리지는 않는다.
       AppLogger.e('원결제 무효 처리 실패', e, stack);
     }
+  }
+
+  /// 다른 앱이 이미 알린 결제라면 **그 거래에 정보를 얹고 끝낸다.**
+  ///
+  /// 병합했으면 [IngestMerged] 를, 병합 대상이 없으면 null 을 돌려준다.
+  /// null 이면 호출자는 새 거래를 만든다.
+  Future<IngestResult?> _tryMerge(
+    ParsedPayment payment,
+    _Resolution resolution,
+  ) async {
+    final String? source = payment.sourcePackage;
+    if (source == null || source.trim().isEmpty) return null;
+
+    final Transaction? existing;
+    try {
+      existing = await _transactions.findMergeTarget(
+        amount: payment.signedAmount,
+        paymentDatetime: payment.paymentDatetime,
+        sourcePackage: source,
+      );
+    } on Object catch (e, stack) {
+      // 병합에 실패해도 거래는 기록돼야 한다. 새로 만드는 쪽으로 넘어간다.
+      AppLogger.e('병합 대상 조회 실패', e, stack);
+      return null;
+    }
+    if (existing == null) return null;
+
+    final Transaction? updated = _merger.merge(
+      existing: existing,
+      incoming: payment,
+      incomingBrand: resolution.brand,
+      incomingCategory: resolution.needsReview ? null : resolution.category,
+      incomingSubcategory:
+          resolution.needsReview ? null : resolution.subcategory,
+    );
+
+    if (updated != null) {
+      await _transactions.update(updated);
+    }
+
+    AppLogger.i('알림 병합: ${existing.displayName} ${payment.amount}원 '
+        '<- $source'
+        '${updated == null ? ' (더할 정보 없음)' : ''}');
+
+    return IngestMerged(
+      transaction: updated ?? existing,
+      sourcePackage: source,
+    );
   }
 
   Future<_Resolution> _resolve(ParsedPayment payment) async {

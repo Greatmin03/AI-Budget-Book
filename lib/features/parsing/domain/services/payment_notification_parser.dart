@@ -212,8 +212,30 @@ class PaymentNotificationParser {
         isCancellation: isCancellation,
         installmentMonths: installmentMonths,
         sourcePackage: notification.packageName,
+        accountNumber: _extractAccountNumber(text),
+        balanceAfter: _extractBalance(text),
       ),
     );
+  }
+
+  /// 은행 알림의 마스킹된 계좌번호. 예: `942902-**-***245`
+  ///
+  /// 마스킹된 형태 그대로 둔다. 어느 계좌에서 나갔는지 알아보는 용도이고,
+  /// 원본 번호를 우리가 복원할 이유가 없다.
+  static String? _extractAccountNumber(String text) {
+    final Match? m = _accountNumberPattern.firstMatch(text);
+    return m?.group(0);
+  }
+
+  /// 거래 직후 잔액. 예: `잔액1,394,125` -> 1394125
+  ///
+  /// 은행이 알려 주는 실제 값이다. 앱이 계산한 잔액과 대조할 수 있는
+  /// 유일한 근거이므로 버리지 않는다.
+  static int? _extractBalance(String text) {
+    final Match? m = _balancePattern.firstMatch(text);
+    if (m == null) return null;
+    final String digits = (m.group(1) ?? '').replaceAll(',', '');
+    return int.tryParse(digits);
   }
 
   // ------------------------------------------------------------------- 입금
@@ -446,6 +468,17 @@ class PaymentNotificationParser {
     '더치페이',
     '정산',
   ];
+
+  /// 마스킹된 계좌번호. `942902-**-***245`
+  ///
+  /// 숫자와 `*` 가 하이픈으로 이어진 형태만 잡는다. 날짜(`08/06`)나
+  /// 금액과 헷갈리지 않도록 하이픈 두 개 이상을 요구한다.
+  static final RegExp _accountNumberPattern =
+      RegExp(r'[0-9*]{2,}-[0-9*]{2,}-[0-9*]{2,}');
+
+  /// `잔액1,394,125` / `잔액 1,394,125원`
+  static final RegExp _balancePattern =
+      RegExp(r'잔액\s*([0-9,]+)');
 
   /// 체크/직불카드 결제를 뜻하는 표현.
   ///

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:budget_book/core/constants/classification_source.dart';
 import 'package:budget_book/core/database/db_schema.dart';
 import 'package:budget_book/core/database/seed/brand_seed.dart';
 import 'package:budget_book/core/utils/date_range.dart';
@@ -11,7 +10,6 @@ import 'package:budget_book/features/merchants/data/datasources/merchant_local_d
 import 'package:budget_book/features/merchants/data/repositories/merchant_repository_impl.dart';
 import 'package:budget_book/features/merchants/domain/services/brand_extractor.dart';
 import 'package:budget_book/features/notifications/domain/entities/raw_notification.dart';
-import 'package:budget_book/features/parsing/domain/entities/parsed_payment.dart';
 import 'package:budget_book/features/parsing/domain/services/payment_notification_parser.dart';
 import 'package:budget_book/features/recurring/data/repositories/recurring_repository_impl.dart';
 import 'package:budget_book/features/settings/data/datasources/settings_local_datasource.dart';
@@ -233,26 +231,29 @@ void main() {
             LegacySchema.createAt(db, beforeVoidOriginal),
       );
 
-      final TransactionRepositoryImpl oldRepo =
-          TransactionRepositoryImpl(TransactionLocalDataSource(old));
+      // 옛 스키마에 넣어야 하므로 그 시절에 있던 컬럼만 직접 쓴다.
+      // 현재 DTO 를 쓰면 나중에 추가된 컬럼까지 넣으려 해서 실패한다.
       Future<void> add(String brand, int amount, {bool cancelled = false,
           int minute = 0}) async {
         final DateTime when = DateTime(2026, 8, 5, 12, minute);
-        await oldRepo.insert(
-          Transaction(
-            merchantRaw: brand,
-            brand: brand,
-            amount: amount,
-            isCancelled: cancelled,
-            category: '식비',
-            subcategory: '카페',
-            method: PaymentMethodKind.card,
-            paymentDatetime: when,
-            rawNotification: 'x',
-            fingerprint: '$brand|$amount|${when.microsecondsSinceEpoch}',
-            classificationSource: ClassificationSource.seed,
-          ),
-        );
+        final int now = DateTime.now().millisecondsSinceEpoch;
+        await old.insert(DbSchema.tableTransactions, <String, Object?>{
+          DbSchema.tMerchantRaw: brand,
+          DbSchema.tBrand: brand,
+          DbSchema.tAmount: amount,
+          DbSchema.tCategory: '식비',
+          DbSchema.tSubcategory: '카페',
+          DbSchema.tPaymentMethod: 'card',
+          DbSchema.tIsCancelled: cancelled ? 1 : 0,
+          DbSchema.tPaymentDatetime: when.millisecondsSinceEpoch,
+          DbSchema.tRawNotification: 'x',
+          DbSchema.tFingerprint: '$brand|$amount|$minute',
+          DbSchema.tClassificationSource: 'seed',
+          DbSchema.tDirection: 'expense',
+          DbSchema.tEntrySource: 'notification',
+          DbSchema.tCreatedAt: now,
+          DbSchema.tUpdatedAt: now,
+        });
       }
 
       // 옛 방식: 취소 건에만 표시가 있다.

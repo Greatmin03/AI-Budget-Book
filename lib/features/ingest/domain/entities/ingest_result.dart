@@ -8,6 +8,26 @@ sealed class IngestResult {
 }
 
 /// 가계부에 새로 기록되었다.
+/// 다른 앱이 이미 알린 결제였다. **거래를 새로 만들지 않고 정보만 얹었다.**
+///
+/// 중복(`IngestDuplicate`)과 구분한다. 중복은 버린 것이고, 병합은 값을
+/// 더한 것이다 — 사용자에게 보여 줄 말도 달라야 한다.
+class IngestMerged extends IngestResult {
+  const IngestMerged({
+    required this.transaction,
+    required this.sourcePackage,
+  });
+
+  final Transaction transaction;
+
+  /// 정보를 더해 준 앱.
+  final String sourcePackage;
+
+  @override
+  String get summary => '병합: ${transaction.displayName} '
+      '${transaction.amount}원 (알림 ${transaction.mergedSources.length}개)';
+}
+
 class IngestSaved extends IngestResult {
   const IngestSaved(this.transaction);
 

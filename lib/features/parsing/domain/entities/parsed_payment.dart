@@ -1,3 +1,5 @@
+import 'notification_source_trait.dart';
+
 /// 거래 유형.
 ///
 /// **이 값이 브랜드 자동 학습 여부를 결정한다.**
@@ -75,6 +77,8 @@ class ParsedPayment {
     this.isCancellation = false,
     this.installmentMonths = 0,
     this.sourcePackage,
+    this.accountNumber,
+    this.balanceAfter,
   });
 
   /// 알림에서 뽑아낸 가맹점 문자열 원본. 예: `스타벅스 강남점`
@@ -100,6 +104,22 @@ class ParsedPayment {
 
   final String? sourcePackage;
 
+  /// 은행 알림이 알려 준 계좌번호. 예: `942902-**-***245`
+  ///
+  /// 마스킹된 형태 그대로 둔다. 어느 계좌에서 나갔는지 사람이 알아보는 데
+  /// 쓰고, 그대로 외부로 나가지 않는다.
+  final String? accountNumber;
+
+  /// 이 거래 **직후**의 계좌 잔액.
+  ///
+  /// 은행이 알려 주는 실제 값이다. 앱이 계산한 잔액과 대조할 수 있는
+  /// 유일한 근거이므로 버리지 않고 남긴다.
+  final int? balanceAfter;
+
+  /// 알림을 보낸 앱의 특성(브랜드가 정확한가, 계좌 정보를 주는가).
+  NotificationSourceTrait get sourceTrait =>
+      NotificationSourceTrait.of(sourcePackage);
+
   /// 가계부 합산에 사용하는 부호 있는 금액.
   int get signedAmount => isCancellation ? -amount : amount;
 
@@ -110,6 +130,8 @@ class ParsedPayment {
 
   ParsedPayment copyWith({
     String? merchantRaw,
+    String? accountNumber,
+    int? balanceAfter,
     int? amount,
     DateTime? paymentDatetime,
     PaymentMethodKind? method,
@@ -125,6 +147,8 @@ class ParsedPayment {
       rawNotification: rawNotification,
       cardName: cardName ?? this.cardName,
       isCancellation: isCancellation ?? this.isCancellation,
+      accountNumber: accountNumber ?? this.accountNumber,
+      balanceAfter: balanceAfter ?? this.balanceAfter,
       installmentMonths: installmentMonths ?? this.installmentMonths,
       sourcePackage: sourcePackage,
     );

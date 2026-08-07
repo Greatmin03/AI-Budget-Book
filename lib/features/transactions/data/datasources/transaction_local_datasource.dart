@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/db_schema.dart';
 import '../../../../core/utils/date_range.dart';
+import '../../domain/entities/transaction.dart';
 import '../models/transaction_dto.dart';
 
 /// `transactions` 테이블 접근.
@@ -110,6 +111,42 @@ class TransactionLocalDataSource {
   ///  - 브랜드 동일
   ///  - 결제 수단 동일
   ///  - 결제 시각 차이가 [windowSeconds] 이내
+  /// **다른 앱**이 알린 같은 결제를 찾는다.
+  ///
+  /// 브랜드는 비교하지 않는다. 토스는 `더스윙`, 은행은 `통신판매_NIC` 처럼
+  /// 서로 다른 이름을 주기 때문이다 — 브랜드로 맞추려 하면 영영 못 만난다.
+  ///
+  /// 금액과 시각만으로 맞추므로 창을 좁게 잡는다. 같은 앱에서 온 것은
+  /// 제외한다(그건 진짜 중복이거나 정말 별개의 결제다).
+  Future<Map<String, Object?>?> findMergeTarget({
+    required int amount,
+    required DateTime paymentDatetime,
+    required String sourcePackage,
+    required int windowSeconds,
+  }) async {
+    final int center = paymentDatetime.millisecondsSinceEpoch;
+    final int window = windowSeconds * 1000;
+
+    final List<Map<String, Object?>> rows = await _db.rawQuery(
+      '$_select '
+      'WHERE t.${DbSchema.tAmount} = ? '
+      '  AND t.${DbSchema.tEntrySource} = ? '
+      '  AND t.${DbSchema.tPaymentDatetime} BETWEEN ? AND ? '
+      "  AND COALESCE(t.${DbSchema.tSourcePackage}, '') != ? "
+      'ORDER BY ABS(t.${DbSchema.tPaymentDatetime} - ?) ASC '
+      'LIMIT 1',
+      <Object?>[
+        amount,
+        EntrySource.notification.code,
+        center - window,
+        center + window,
+        sourcePackage,
+        center,
+      ],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
   Future<Map<String, Object?>?> findNearDuplicate({
     required String brand,
     required int amount,

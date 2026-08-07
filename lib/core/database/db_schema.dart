@@ -29,12 +29,14 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
+  /// v15 -> v16: `transactions.account_number`, `balance_after`,
+  ///            `merged_sources` 추가 (여러 앱 알림 병합)
   /// v14 -> v15: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정
   /// v13 -> v14: `asset_transfers.to_account_id` 추가
   ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
   /// v12 -> v13: `unmapped_place_categories` 추가
   ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
-  static const int databaseVersion = 15;
+  static const int databaseVersion = 16;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -161,6 +163,21 @@ class DbSchema {
   ///
   /// 1이면 "분류 필요" 목록에 나타나고, 사용자가 카테고리를 한 번 고르면 0이 된다.
   static const String tNeedsReview = 'needs_review';
+
+  /// 은행 알림이 알려 준 마스킹 계좌번호. 예: `942902-**-***245`
+  static const String tAccountNumber = 'account_number';
+
+  /// 이 거래 **직후**의 계좌 잔액(은행이 알려 준 실제 값).
+  ///
+  /// 앱이 계산한 잔액과 대조할 수 있는 유일한 근거다.
+  static const String tBalanceAfter = 'balance_after';
+
+  /// 이 거래를 만든 알림들의 패키지 이름(쉼표 구분).
+  ///
+  /// 같은 결제를 토스와 은행이 각각 알린다. 둘을 합쳐 **거래는 하나만**
+  /// 만들되, 어느 앱에서 왔는지는 남긴다 — 나중에 어느 쪽 정보를 믿을지
+  /// 판단하는 근거가 된다.
+  static const String tMergedSources = 'merged_sources';
 
   static const String tCreatedAt = 'created_at';
   static const String tUpdatedAt = 'updated_at';
@@ -506,6 +523,9 @@ class DbSchema {
       $tAiProcessedAt INTEGER,
       $tProjectId INTEGER
         REFERENCES $tableProjects($pjId) ON DELETE SET NULL,
+      $tAccountNumber TEXT,
+      $tBalanceAfter INTEGER,
+      $tMergedSources TEXT,
       $tCreatedAt INTEGER NOT NULL,
       $tUpdatedAt INTEGER NOT NULL
     )
@@ -973,6 +993,13 @@ class DbSchema {
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
       )
       ''',
+    ],
+    16: <String>[
+      // 같은 결제를 여러 앱이 알린다. 하나로 합치면서 각 앱이 준 정보를
+      // 모두 남기기 위한 자리.
+      'ALTER TABLE $tableTransactions ADD COLUMN $tAccountNumber TEXT',
+      'ALTER TABLE $tableTransactions ADD COLUMN $tBalanceAfter INTEGER',
+      'ALTER TABLE $tableTransactions ADD COLUMN $tMergedSources TEXT',
     ],
     15: <String>[
       // 체크카드 결제를 이체로 저장하고 있었다. 은행 알림에 `출금` 이

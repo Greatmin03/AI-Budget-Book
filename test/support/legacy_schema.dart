@@ -26,6 +26,12 @@ class LegacySchema {
     14: <String>[
       '${DbSchema.tableAssetTransfers}.${DbSchema.atToAccountId}',
     ],
+    // v15 는 데이터만 고친다.
+    16: <String>[
+      '${DbSchema.tableTransactions}.${DbSchema.tAccountNumber}',
+      '${DbSchema.tableTransactions}.${DbSchema.tBalanceAfter}',
+      '${DbSchema.tableTransactions}.${DbSchema.tMergedSources}',
+    ],
   };
 
   /// [version] 시점의 스키마를 [db] 에 만든다.

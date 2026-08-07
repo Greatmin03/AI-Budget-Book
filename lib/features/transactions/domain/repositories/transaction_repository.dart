@@ -7,6 +7,15 @@ abstract interface class TransactionRepository {
   /// 같은 fingerprint 가 이미 있으면(중복 알림) `null` 을 반환하고 저장하지 않는다.
   Future<Transaction?> insert(Transaction transaction);
 
+  /// **다른 앱이 알린 같은 결제**를 찾는다. 없으면 null.
+  ///
+  /// 브랜드는 비교하지 않는다 — 앱마다 다른 이름을 주기 때문이다.
+  Future<Transaction?> findMergeTarget({
+    required int amount,
+    required DateTime paymentDatetime,
+    required String sourcePackage,
+  });
+
   Future<Transaction?> findById(int id);
 
   /// 특정 기간의 거래를 최신순으로.

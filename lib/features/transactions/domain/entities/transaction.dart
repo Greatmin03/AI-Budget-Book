@@ -131,6 +131,9 @@ class Transaction {
     this.isAssetTransfer = false,
     this.entrySource = EntrySource.notification,
     this.accountId,
+    this.accountNumber,
+    this.balanceAfter,
+    this.mergedSources = const <String>[],
     this.assetKind,
     this.aiStatus = AiStatus.none,
     this.aiProcessedAt,
@@ -209,6 +212,17 @@ class Transaction {
 
   /// 지출 / 수입.
   final TransactionDirection direction;
+
+  /// 은행 알림이 알려 준 마스킹 계좌번호. 예: `942902-**-***245`
+  final String? accountNumber;
+
+  /// 이 거래 직후의 계좌 잔액(은행이 알려 준 실제 값).
+  final int? balanceAfter;
+
+  /// 이 거래를 만든 알림들의 패키지 이름.
+  ///
+  /// 같은 결제를 토스와 은행이 각각 알린 경우 둘 다 들어간다.
+  final List<String> mergedSources;
 
   /// 사용한 계좌·수단 이름. 예: `KB 입출금`, `현금`
   ///
@@ -331,6 +345,9 @@ class Transaction {
     bool? isAssetTransfer,
     Object? account = _unset,
     Object? accountId = _unset,
+    Object? accountNumber = _unset,
+    Object? balanceAfter = _unset,
+    List<String>? mergedSources,
     Object? assetKind = _unset,
     AiStatus? aiStatus,
     Object? aiProcessedAt = _unset,
@@ -372,6 +389,13 @@ class Transaction {
       account: identical(account, _unset) ? this.account : account as String?,
       accountId:
           identical(accountId, _unset) ? this.accountId : accountId as int?,
+      accountNumber: identical(accountNumber, _unset)
+          ? this.accountNumber
+          : accountNumber as String?,
+      balanceAfter: identical(balanceAfter, _unset)
+          ? this.balanceAfter
+          : balanceAfter as int?,
+      mergedSources: mergedSources ?? this.mergedSources,
       assetKind:
           identical(assetKind, _unset) ? this.assetKind : assetKind as String?,
       aiStatus: aiStatus ?? this.aiStatus,

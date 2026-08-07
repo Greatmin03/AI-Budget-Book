@@ -129,6 +129,7 @@ class IngestStatus {
     this.ignoredCount = 0,
     this.failedCount = 0,
     this.duplicateCount = 0,
+    this.mergedCount = 0,
     this.depositCount = 0,
     this.lastMessage,
     this.lastUpdatedAt,
@@ -140,6 +141,9 @@ class IngestStatus {
   final int ignoredCount;
   final int failedCount;
   final int duplicateCount;
+
+  /// 다른 앱 알림과 합쳐진 건수. 거래가 늘지는 않았다.
+  final int mergedCount;
 
   /// 정산 후보로 저장한 입금 건수.
   final int depositCount;
@@ -156,6 +160,7 @@ class IngestStatus {
     int? ignoredCount,
     int? failedCount,
     int? duplicateCount,
+    int? mergedCount,
     int? depositCount,
     String? lastMessage,
   }) {
@@ -166,6 +171,7 @@ class IngestStatus {
       ignoredCount: ignoredCount ?? this.ignoredCount,
       failedCount: failedCount ?? this.failedCount,
       duplicateCount: duplicateCount ?? this.duplicateCount,
+      mergedCount: mergedCount ?? this.mergedCount,
       depositCount: depositCount ?? this.depositCount,
       lastMessage: lastMessage ?? this.lastMessage,
       lastUpdatedAt: DateTime.now(),
@@ -176,6 +182,12 @@ class IngestStatus {
     return switch (result) {
       IngestSaved() => copyWith(
           savedCount: savedCount + 1,
+          lastMessage: result.summary,
+        ),
+      // 병합은 버린 것이 아니라 값을 더한 것이다. 저장으로 세지도 않는다
+      // (거래가 늘지 않았으므로).
+      IngestMerged() => copyWith(
+          mergedCount: mergedCount + 1,
           lastMessage: result.summary,
         ),
       IngestDuplicate() => copyWith(
