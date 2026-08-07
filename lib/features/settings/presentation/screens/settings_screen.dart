@@ -9,6 +9,7 @@ import '../../../classification/domain/usecases/process_ai_pending_queue.dart';
 import '../../../classification/presentation/controllers/ai_queue_controller.dart';
 import '../../../classification/presentation/screens/diagnostics_screen.dart';
 import '../../../ingest/domain/services/notification_ingest_service.dart';
+import '../../../settlements/presentation/screens/deposit_link_screen.dart';
 import '../controllers/settings_controller.dart';
 import '../../../notifications/domain/entities/notification_source.dart';
 import '../../../transactions/domain/usecases/normalize_existing_brands.dart';
@@ -378,6 +379,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
               leading: const Icon(Icons.receipt_long_outlined),
               title: const Text('기록된 거래'),
               trailing: Text('${_controller.transactionCount}건'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.call_received_outlined),
+              title: const Text('입금 연결'),
+              subtitle: const Text(
+                '받은 돈을 결제와 연결하거나, 잘못 연결한 것을 해제합니다.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DepositLinkScreen(),
+                  ),
+                );
+                await _controller.load();
+              },
             ),
             ListTile(
               leading: const Icon(Icons.merge_type_outlined),

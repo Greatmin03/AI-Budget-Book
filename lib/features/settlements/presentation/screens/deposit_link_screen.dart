@@ -20,6 +20,9 @@ class DepositLinkScreen extends StatefulWidget {
 
 class _DepositLinkScreenState extends State<DepositLinkScreen> {
   List<Deposit> _deposits = const <Deposit>[];
+
+  /// 이미 연결한 입금. 잘못 연결한 것을 되돌리는 유일한 경로다.
+  List<Deposit> _linked = const <Deposit>[];
   bool _isLoading = true;
 
   @override
@@ -33,9 +36,12 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
     try {
       final List<Deposit> items =
           await Injector.instance.deposits.findPending();
+      final List<Deposit> linked =
+          await Injector.instance.deposits.findLinked();
       if (!mounted) return;
       setState(() {
         _deposits = items;
+        _linked = linked;
         _isLoading = false;
       });
     } on Object catch (e, stack) {
@@ -107,6 +113,49 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
     await _load();
   }
 
+  /// 연결을 되돌린다.
+  ///
+  /// 잘못 연결하는 일은 반드시 생긴다. 되돌릴 수 없으면 사용자는 틀린 숫자를
+  /// 안고 살거나 거래를 지워야 한다.
+  Future<void> _unlink(Deposit deposit) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('연결을 해제할까요?'),
+        content: Text(
+          '${deposit.counterparty} +${Formatters.won(deposit.amount)}\n\n'
+          '이 입금으로 만든 정산이 삭제되고, 연결했던 거래의 부담이 '
+          '원래대로 돌아옵니다. 거래 자체는 지워지지 않습니다.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('해제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final int removed = await Injector.instance.linkDeposit.unlink(deposit);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('연결을 해제했습니다. 정산 $removed건이 삭제되었습니다.')),
+      );
+    } on Object catch (e, stack) {
+      AppLogger.e('입금 연결 해제 실패', e, stack);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('해제하지 못했습니다. ($e)')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,49 +176,55 @@ class _DepositLinkScreenState extends State<DepositLinkScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _deposits.isEmpty
+          : (_deposits.isEmpty && _linked.isEmpty)
               ? _buildEmpty(context)
-              : ListView.separated(
-                  itemCount: _deposits.length + 1,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (BuildContext context, int index) {
-                    if (index == 0) return _buildHeader(context);
-                    final Deposit deposit = _deposits[index - 1];
-                    return ListTile(
-                      title: Text(
-                        deposit.counterparty,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      subtitle: Text(
-                        <String>[
-                          Formatters.monthDay(deposit.depositedAt),
-                          Formatters.time(deposit.depositedAt),
-                          if (deposit.bankName != null) deposit.bankName!,
-                        ].join(' · '),
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            '+${Formatters.won(deposit.amount)}',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    children: <Widget>[
+                      if (_deposits.isNotEmpty) ...<Widget>[
+                        _buildHeader(context),
+                        for (final Deposit deposit in _deposits) ...<Widget>[
+                          _PendingTile(
+                            deposit: deposit,
+                            onTap: () => _openCandidates(deposit),
+                            onIgnore: () => _ignore(deposit),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            tooltip: '정산이 아님',
-                            onPressed: () => _ignore(deposit),
-                          ),
+                          const Divider(height: 1),
                         ],
-                      ),
-                      onTap: () => _openCandidates(deposit),
-                    );
-                  },
+                      ],
+                      // 연결한 것도 보여 준다. 잘못 연결했을 때 되돌릴
+                      // 곳이 없으면 사용자는 틀린 숫자를 안고 살게 된다.
+                      if (_linked.isNotEmpty) ...<Widget>[
+                        _buildLinkedHeader(context),
+                        for (final Deposit deposit in _linked) ...<Widget>[
+                          _LinkedTile(
+                            deposit: deposit,
+                            onUnlink: () => _unlink(deposit),
+                          ),
+                          const Divider(height: 1),
+                        ],
+                      ],
+                    ],
+                  ),
                 ),
+    );
+  }
+
+  Widget _buildLinkedHeader(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      color: scheme.surfaceContainerLow,
+      child: Text(
+        '연결된 입금 ${_linked.length}건\n'
+        '잘못 연결했다면 해제하고 다시 연결할 수 있습니다.',
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.5,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
     );
   }
 
@@ -435,6 +490,98 @@ class _Badge extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: onColor,
         ),
+      ),
+    );
+  }
+}
+
+/// 아직 연결하지 않은 입금.
+class _PendingTile extends StatelessWidget {
+  const _PendingTile({
+    required this.deposit,
+    required this.onTap,
+    required this.onIgnore,
+  });
+
+  final Deposit deposit;
+  final VoidCallback onTap;
+  final VoidCallback onIgnore;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(
+        deposit.counterparty,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        <String>[
+          Formatters.monthDay(deposit.depositedAt),
+          Formatters.time(deposit.depositedAt),
+          if (deposit.bankName != null) deposit.bankName!,
+        ].join(' · '),
+        style: const TextStyle(fontSize: 11),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            '+${Formatters.won(deposit.amount)}',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            tooltip: '정산이 아님',
+            onPressed: onIgnore,
+          ),
+        ],
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+/// 이미 연결한 입금. 해제해서 다시 연결할 수 있다.
+class _LinkedTile extends StatelessWidget {
+  const _LinkedTile({required this.deposit, required this.onUnlink});
+
+  final Deposit deposit;
+  final VoidCallback onUnlink;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(Icons.link, size: 20, color: scheme.outline),
+      title: Text(
+        deposit.counterparty,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        <String>[
+          Formatters.monthDay(deposit.depositedAt),
+          Formatters.time(deposit.depositedAt),
+          if (deposit.bankName != null) deposit.bankName!,
+        ].join(' · '),
+        style: const TextStyle(fontSize: 11),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            '+${Formatters.won(deposit.amount)}',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          TextButton(onPressed: onUnlink, child: const Text('해제')),
+        ],
       ),
     );
   }

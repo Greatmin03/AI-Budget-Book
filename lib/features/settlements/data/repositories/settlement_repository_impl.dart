@@ -70,6 +70,23 @@ class SettlementRepositoryImpl implements SettlementRepository {
   }
 
   @override
+  Future<List<Settlement>> findByDeposit(int depositId) async {
+    final List<Map<String, Object?>> rows =
+        await _local.findByDeposit(depositId);
+    return rows.map(_fromRow).toList();
+  }
+
+  @override
+  Future<int> removeByDeposit(int depositId) async {
+    final int removed = await _local.deleteByDeposit(depositId);
+    if (removed > 0) {
+      AppLogger.i('입금 $depositId 로 만들어진 정산 $removed건 삭제');
+      _notify();
+    }
+    return removed;
+  }
+
+  @override
   Future<int> totalSettledInRange(int fromMillis, int toExclusiveMillis) {
     return _local.totalInRange(fromMillis, toExclusiveMillis);
   }
@@ -139,6 +156,13 @@ class DepositRepositoryImpl implements DepositRepository {
   Future<List<Deposit>> findPending({int limit = 50}) async {
     final List<Map<String, Object?>> rows =
         await _local.findByStatus(DepositStatus.pending.name, limit);
+    return rows.map(_fromRow).toList();
+  }
+
+  @override
+  Future<List<Deposit>> findLinked({int limit = 50}) async {
+    final List<Map<String, Object?>> rows =
+        await _local.findByStatus(DepositStatus.linked.name, limit);
     return rows.map(_fromRow).toList();
   }
 

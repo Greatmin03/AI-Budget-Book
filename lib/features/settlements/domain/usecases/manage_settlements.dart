@@ -60,6 +60,13 @@ class ManageSettlements {
     _transactions.notifyChanged();
   }
 
+  /// 이 입금으로 만들어진 정산을 모두 지운다.
+  Future<int> removeByDeposit(int depositId) async {
+    final int removed = await _settlements.removeByDeposit(depositId);
+    if (removed > 0) _transactions.notifyChanged();
+    return removed;
+  }
+
   Future<List<Settlement>> forTransaction(int transactionId) =>
       _settlements.findByTransaction(transactionId);
 
@@ -238,6 +245,56 @@ class LinkDepositToTransaction {
     final int? id = deposit.id;
     if (id == null) return;
     await _deposits.updateStatus(id, DepositStatus.ignored);
+  }
+
+  /// **연결을 되돌린다.**
+  ///
+  /// 잘못 연결하는 일은 반드시 생긴다. 되돌릴 수 없으면 사용자는 틀린 숫자를
+  /// 안고 살거나 거래를 지워야 한다 — 둘 다 나쁘다.
+  ///
+  /// 세 가지를 원래대로 돌린다.
+  ///  - 이 입금으로 만든 정산 전부 삭제 (거래의 부담이 되돌아온다)
+  ///  - 입금을 다시 `pending` 으로 (후보 목록에 올라온다)
+  ///  - 수입 거래를 `정산` 에서 빼고 다시 사용자에게 묻는다
+  ///
+  /// 거래 자체는 지우지 않는다. 원본은 어느 경로로도 사라지지 않는다.
+  Future<int> unlink(Deposit deposit) async {
+    final int? depositId = deposit.id;
+    if (depositId == null) return 0;
+
+    final int removed = await _settlements.removeByDeposit(depositId);
+    await _deposits.updateStatus(depositId, DepositStatus.pending);
+    await _restoreIncomeClassification(deposit);
+
+    AppLogger.i('입금 연결 해제: ${deposit.counterparty} '
+        '+${deposit.amount}원 (정산 $removed건 삭제)');
+    return removed;
+  }
+
+  /// 정산으로 옮겼던 수입 거래를 원래대로 되돌린다.
+  ///
+  /// `정산` 으로 둔 채 연결만 풀면 그 돈은 수입에도 안 잡히고 정산도 아닌
+  /// 상태가 된다. 어느 통계에도 없는 돈이 생긴다.
+  Future<void> _restoreIncomeClassification(Deposit deposit) async {
+    final int? transactionId = deposit.transactionId;
+    if (transactionId == null) return;
+
+    try {
+      final Transaction? income = await _transactions.findById(transactionId);
+      if (income == null) return;
+      if (income.category != CategoryTaxonomy.settlementCategory) return;
+
+      await _transactions.update(
+        income.copyWith(
+          category: CategoryTaxonomy.etcCategory,
+          subcategory: '미분류',
+          // 무엇으로 들어온 돈인지 다시 사용자가 고른다.
+          needsReview: true,
+        ),
+      );
+    } on Object catch (e, stack) {
+      AppLogger.e('수입 분류 복원 실패', e, stack);
+    }
   }
 }
 

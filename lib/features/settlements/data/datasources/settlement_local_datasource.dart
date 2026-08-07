@@ -41,6 +41,23 @@ class SettlementLocalDataSource {
     return _db.insert(DbSchema.tableSettlements, row);
   }
 
+  Future<List<Map<String, Object?>>> findByDeposit(int depositId) {
+    return _db.query(
+      DbSchema.tableSettlements,
+      where: '${DbSchema.stDepositId} = ?',
+      whereArgs: <Object?>[depositId],
+      orderBy: '${DbSchema.stSettledAt} ASC',
+    );
+  }
+
+  Future<int> deleteByDeposit(int depositId) {
+    return _db.delete(
+      DbSchema.tableSettlements,
+      where: '${DbSchema.stDepositId} = ?',
+      whereArgs: <Object?>[depositId],
+    );
+  }
+
   Future<int> delete(int id) {
     return _db.delete(
       DbSchema.tableSettlements,

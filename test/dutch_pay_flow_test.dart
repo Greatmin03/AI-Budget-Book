@@ -465,4 +465,118 @@ void main() {
       );
     });
   });
+
+  group('연결 해제 — 다시 연결할 수 있어야 한다', () {
+    Future<(Transaction, Deposit)> linked() async {
+      final Transaction payment = await payForEveryone();
+      await record(transferIn(20000));
+      final Deposit deposit = (await deposits.findPending()).single;
+      await linkDeposit.link(deposit: deposit, transaction: payment);
+      return (payment, deposit);
+    }
+
+    test('해제하면 거래의 부담이 되돌아온다', () async {
+      final (Transaction payment, Deposit deposit) = await linked();
+      expect((await transactions.findById(payment.id!))!.netAmount, 10000);
+
+      final int removed = await linkDeposit.unlink(deposit);
+
+      expect(removed, 1);
+      expect((await transactions.findById(payment.id!))!.netAmount, 30000);
+    });
+
+    test('해제하면 후보 목록에 다시 올라온다', () async {
+      final (Transaction _, Deposit deposit) = await linked();
+      expect(await deposits.countPending(), 0);
+
+      await linkDeposit.unlink(deposit);
+
+      expect(await deposits.countPending(), 1);
+    });
+
+    test('해제하고 다른 거래에 다시 연결할 수 있다', () async {
+      final (Transaction first, Deposit deposit) = await linked();
+
+      final DateTime when = DateTime(2026, 8, 5, 21);
+      final Transaction second = (await transactions.insert(
+        Transaction(
+          merchantRaw: '다른 가게',
+          brand: '다른 가게',
+          amount: 25000,
+          category: '식비',
+          subcategory: '한식',
+          method: PaymentMethodKind.card,
+          paymentDatetime: when,
+          rawNotification: 'test',
+          fingerprint: 'other|${when.microsecondsSinceEpoch}',
+          classificationSource: ClassificationSource.seed,
+        ),
+      ))!;
+
+      await linkDeposit.unlink(deposit);
+      final Deposit again = (await deposits.findPending()).single;
+      await linkDeposit.link(deposit: again, transaction: second);
+
+      expect((await transactions.findById(first.id!))!.netAmount, 30000);
+      expect((await transactions.findById(second.id!))!.netAmount, 5000);
+    });
+
+    test('해제하면 수입 분류도 되돌아온다', () async {
+      final (Transaction _, Deposit deposit) = await linked();
+      final Transaction settledIncome =
+          (await transactions.findById(deposit.transactionId!))!;
+      expect(settledIncome.category, CategoryTaxonomy.settlementCategory);
+
+      await linkDeposit.unlink(deposit);
+
+      final Transaction restored =
+          (await transactions.findById(deposit.transactionId!))!;
+      // 정산으로 둔 채 연결만 풀면 수입에도 안 잡히고 정산도 아닌
+      // 상태가 된다. 어느 통계에도 없는 돈이 생긴다.
+      expect(restored.category, CategoryTaxonomy.etcCategory);
+      expect(restored.needsReview, isTrue);
+      expect(await stats().incomeTotalInRange(august), 20000);
+    });
+
+    test('여러 건에 나눠 붙인 것도 한 번에 해제된다', () async {
+      final Transaction payment = await payForEveryone();
+      final DateTime when = DateTime(2026, 8, 5, 20);
+      final Transaction second = (await transactions.insert(
+        Transaction(
+          merchantRaw: '두 번째',
+          brand: '두 번째',
+          amount: 10000,
+          category: '식비',
+          subcategory: '한식',
+          method: PaymentMethodKind.card,
+          paymentDatetime: when,
+          rawNotification: 'test',
+          fingerprint: 'second|${when.microsecondsSinceEpoch}',
+          classificationSource: ClassificationSource.seed,
+        ),
+      ))!;
+
+      await record(transferIn(40000));
+      final Deposit deposit = (await deposits.findPending()).single;
+      await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: <Transaction>[payment, second],
+      );
+
+      final int removed = await linkDeposit.unlink(deposit);
+
+      expect(removed, 2);
+      expect((await transactions.findById(payment.id!))!.netAmount, 30000);
+      expect((await transactions.findById(second.id!))!.netAmount, 10000);
+    });
+
+    test('거래 자체는 지워지지 않는다', () async {
+      final (Transaction payment, Deposit deposit) = await linked();
+
+      await linkDeposit.unlink(deposit);
+
+      expect(await transactions.findById(payment.id!), isNotNull);
+      expect((await transactions.findById(payment.id!))!.amount, 30000);
+    });
+  });
 }

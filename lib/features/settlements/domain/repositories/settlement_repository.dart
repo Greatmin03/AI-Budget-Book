@@ -15,6 +15,12 @@ abstract interface class SettlementRepository {
 
   Future<void> remove(int settlementId);
 
+  /// 이 입금으로 만들어진 정산들.
+  Future<List<Settlement>> findByDeposit(int depositId);
+
+  /// 이 입금으로 만들어진 정산을 모두 지운다. 지운 개수를 돌려준다.
+  Future<int> removeByDeposit(int depositId);
+
   /// 특정 기간에 돌려받은 금액 합계(통계 표시용).
   Future<int> totalSettledInRange(int fromMillis, int toExclusiveMillis);
 
@@ -28,6 +34,9 @@ abstract interface class DepositRepository {
 
   /// 아직 거래에 연결되지 않은 입금 목록(최신순).
   Future<List<Deposit>> findPending({int limit = 50});
+
+  /// 이미 거래에 연결된 입금(최신순). 연결을 되돌릴 때 쓴다.
+  Future<List<Deposit>> findLinked({int limit = 50});
 
   Future<int> countPending();
 
