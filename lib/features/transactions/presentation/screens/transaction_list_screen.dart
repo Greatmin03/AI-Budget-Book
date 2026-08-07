@@ -24,6 +24,12 @@ class TransactionListScreen extends StatefulWidget {
   State<TransactionListScreen> createState() => _TransactionListScreenState();
 }
 
+/// 목록 맨 아래에 두는 여백.
+///
+/// 떠 있는 버튼이 마지막 줄의 금액을 가리면, 스크롤을 끝까지 내려도
+/// 그 숫자를 볼 수 없다.
+const double _fabClearance = 76;
+
 class _TransactionListScreenState extends State<TransactionListScreen> {
   /// 펼쳐 둔 날짜.
   ///
@@ -152,8 +158,11 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
       listenable: _controller,
       builder: (BuildContext context, Widget? child) {
         // 직접 추가 버튼. 자동 수집되지 않는 거래를 넣는 유일한 경로다.
+        //
+        // 작은 크기를 쓴다. 목록 위에 떠 있는 버튼이라 클수록 가리는 면적이
+        // 넓다 — 자주 쓰는 기능도 아니다.
         return Scaffold(
-          floatingActionButton: FloatingActionButton(
+          floatingActionButton: FloatingActionButton.small(
             onPressed: _openManualEntry,
             tooltip: '직접 추가',
             child: const Icon(Icons.add),
@@ -200,7 +209,7 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     return RefreshIndicator(
       onRefresh: _controller.load,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, _fabClearance),
         itemCount: items.length,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (BuildContext context, int index) {
@@ -280,7 +289,9 @@ class _TransactionListScreenState extends State<TransactionListScreen> {
     return RefreshIndicator(
       onRefresh: _controller.load,
       child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 24),
+        // 맨 아래까지 내렸을 때 마지막 줄이 버튼에 가리지 않도록.
+        // 버튼(40) + 아래 여백(16) + 숨 쉴 자리.
+        padding: const EdgeInsets.only(bottom: _fabClearance),
         itemCount: sections.length,
         itemBuilder: (BuildContext context, int index) {
           final DaySection section = sections[index];
