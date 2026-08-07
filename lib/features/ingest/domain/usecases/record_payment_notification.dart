@@ -305,9 +305,9 @@ class RecordPaymentNotification {
       return const IngestDuplicate();
     }
 
-    // 승인취소라면 원결제도 함께 무효로 만든다.
+    // 승인취소라면 어느 결제를 되돌린 것인지 찾아 잇는다.
     if (payment.isCancellation) {
-      await _voidOriginalPayment(saved);
+      await _linkCancellation(saved);
     }
 
     // 매칭 횟수 갱신(통계의 "가장 많이 간 가게" 보조 지표)
@@ -350,41 +350,6 @@ class RecordPaymentNotification {
   }
 
   /// 가맹점 문자열을 분류로 바꾼다.
-  /// 승인취소가 되돌리는 **원결제**에도 취소 표시를 단다.
-  ///
-  /// 취소 건만 표시하면 원결제가 통계에 그대로 남아 쓰지도 않은 돈이 잡힌다.
-  /// 둘 다 남기면 금액은 상계되지만 건수가 오염된다 — 취소된 결제 한 번
-  /// 때문에 "가장 많이 간 가게" 1위가 되는 식이다.
-  ///
-  /// **금액과 원문은 건드리지 않는다.** 표시만 단다. 목록에는 두 줄 다
-  /// 그대로 보이고, 통계에서만 빠진다.
-  ///
-  /// 원결제를 못 찾으면 아무것도 하지 않는다. 알림을 수집하기 전의 결제일 수
-  /// 있고, 그때는 원결제가 애초에 통계에 없다.
-  Future<void> _voidOriginalPayment(Transaction cancellation) async {
-    try {
-      final Transaction? original = await _transactions.findCancellationTarget(
-        brand: cancellation.brand,
-        // 취소는 음수로 저장된다. 원결제는 같은 크기의 양수다.
-        amount: cancellation.amount.abs(),
-        cancelledAt: cancellation.paymentDatetime,
-      );
-      final int? id = original?.id;
-      if (id == null) {
-        AppLogger.i('취소된 원결제를 찾지 못했습니다: '
-            '${cancellation.brand} ${cancellation.amount.abs()}원');
-        return;
-      }
-
-      await _transactions.markCancelled(id);
-      AppLogger.i('승인취소로 원결제 무효 처리: '
-          '${cancellation.brand} ${cancellation.amount.abs()}원');
-    } on Object catch (e, stack) {
-      // 취소 처리 실패가 거래 기록을 되돌리지는 않는다.
-      AppLogger.e('원결제 무효 처리 실패', e, stack);
-    }
-  }
-
   /// 다른 앱이 이미 알린 결제라면 **그 거래에 정보를 얹고 끝낸다.**
   ///
   /// 병합했으면 [IngestMerged] 를, 병합 대상이 없으면 null 을 돌려준다.
@@ -432,6 +397,88 @@ class RecordPaymentNotification {
       sourcePackage: source,
     );
   }
+
+  /// 승인취소가 되돌린 **원결제**를 찾아 잇는다.
+  ///
+  /// **브랜드로 맞추지 않는다.** 취소 알림에는 가맹점 이름이 아예 없다.
+  ///
+  /// ```
+  /// [결제] ... 카카오T비  체크카드출금 3,400 잔액1,268,162
+  /// [취소] ... 출금취소 3,400 잔액1,271,562
+  ///            ^ 무엇을 취소했는지 알려 주지 않는다
+  /// ```
+  ///
+  /// 같은 카드 + 같은 금액 + 취소 이전으로 좁히고, **후보가 하나뿐일 때만**
+  /// 자동으로 잇는다. 여럿이면 사용자가 고르게 둔다 — 틀리게 이으면 엉뚱한
+  /// 결제가 통계에서 조용히 사라진다.
+  ///
+  /// 오래된 취소는 자동으로 잇지 않는다. 시간이 지날수록 같은 금액의 다른
+  /// 결제가 후보로 끼어들 가능성이 커진다.
+  Future<void> _linkCancellation(Transaction cancellation) async {
+    final int? id = cancellation.id;
+    if (id == null) return;
+
+    try {
+      final List<Transaction> candidates =
+          await _transactions.findCancellationCandidates(
+        cancellation,
+        window: _autoLinkWindow,
+      );
+
+      final List<Transaction> narrowed = _narrowByBrand(
+        cancellation,
+        candidates,
+      );
+
+      if (narrowed.isEmpty) {
+        AppLogger.i('취소 원결제를 찾지 못했습니다: '
+            '${cancellation.amount.abs()}원 — 사용자 확인 필요');
+        return;
+      }
+      if (narrowed.length > 1) {
+        AppLogger.i('취소 후보가 ${narrowed.length}개입니다: '
+            '${cancellation.amount.abs()}원 — 사용자 확인 필요');
+        return;
+      }
+
+      await _transactions.linkCancellation(
+        cancellationId: id,
+        originalId: narrowed.single.id!,
+      );
+      AppLogger.i('취소 자동 연결: ${narrowed.single.displayName} '
+          '${cancellation.amount.abs()}원');
+    } on Object catch (e, stack) {
+      // 연결 실패가 거래 기록을 되돌리지는 않는다.
+      AppLogger.e('취소 연결 실패', e, stack);
+    }
+  }
+
+  /// 취소 알림이 가맹점을 알려 줬다면 그것으로 후보를 좁힌다.
+  ///
+  /// 은행 알림에는 가맹점이 없다(`미확인 가맹점`). 그때는 좁히지 않고
+  /// 카드·금액·시각만으로 판단한다.
+  ///
+  /// 반면 토스처럼 `메가커피 결제 취소` 를 주는 앱이면 그 이름을 써야 한다.
+  /// **이름을 알고 있는데 맞는 후보가 없다면 잇지 않는다** — 다른 가게의
+  /// 같은 금액 결제를 지우는 것보다 그냥 두는 편이 낫다.
+  List<Transaction> _narrowByBrand(
+    Transaction cancellation,
+    List<Transaction> candidates,
+  ) {
+    if (cancellation.merchantRaw == ParsedPayment.unknownMerchantLabel) {
+      return candidates;
+    }
+
+    return candidates
+        .where((Transaction t) => t.brand == cancellation.brand)
+        .toList();
+  }
+
+  /// 자동 연결을 허용하는 기간.
+  ///
+  /// 스펙: "오래된 취소는 자동 연결하지 않는다. 같은 금액 거래가 여러 개
+  /// 존재할 가능성이 높다." 그 이상은 사용자가 직접 잇는다.
+  static const Duration _autoLinkWindow = Duration(days: 7);
 
   Future<_Resolution> _resolve(ParsedPayment payment) async {
     // 가맹점을 특정하지 못한 경우엔 학습하지 않는다(쓰레기 데이터 방지).

@@ -228,28 +228,69 @@ class TransactionRepositoryImpl implements TransactionRepository {
 
   /// 승인취소가 원결제보다 얼마나 늦게까지 올 수 있는지.
   ///
-  /// 보통 같은 날이지만 며칠 뒤에 오는 경우도 있다. 넉넉히 잡되 무한정
-  /// 거슬러 올라가지는 않는다 — 우연히 같은 금액인 옛 결제를 지우면 안 된다.
-  static const Duration _cancellationWindow = Duration(days: 60);
+  /// 보통 같은 날이지만 며칠 뒤에 오기도 한다. 다만 무한정 거슬러 올라가면
+  /// 같은 금액의 옛 결제가 후보로 끼어든다.
+  static const Duration cancellationWindow = Duration(days: 7);
 
   @override
-  Future<Transaction?> findCancellationTarget({
-    required String brand,
-    required int amount,
-    required DateTime cancelledAt,
+  Future<List<Transaction>> findCancellationCandidates(
+    Transaction cancellation, {
+    Duration window = cancellationWindow,
   }) async {
-    final Map<String, Object?>? row = await _local.findCancellationTarget(
-      brand: brand,
-      amount: amount,
-      cancelledAtMillis: cancelledAt.millisecondsSinceEpoch,
-      windowMillis: _cancellationWindow.inMilliseconds,
+    final int? id = cancellation.id;
+    if (id == null) return const <Transaction>[];
+
+    final List<Map<String, Object?>> rows =
+        await _local.findCancellationCandidates(
+      cardName: cancellation.cardName,
+      // 취소는 음수로 저장된다. 원결제는 같은 크기의 양수다.
+      amount: cancellation.amount.abs(),
+      cancelledAtMillis: cancellation.paymentDatetime.millisecondsSinceEpoch,
+      windowMillis: window.inMilliseconds,
+      excludeId: id,
     );
-    return row == null ? null : TransactionDto.fromRow(row);
+    return rows.map(TransactionDto.fromRow).toList();
   }
 
   @override
-  Future<void> markCancelled(int id) async {
-    await _local.markCancelled(id, DateTime.now().millisecondsSinceEpoch);
+  Future<List<Transaction>> findUnmatchedCancellations({int limit = 50}) async {
+    final List<Map<String, Object?>> rows =
+        await _local.findUnmatchedCancellations(limit);
+    return rows.map(TransactionDto.fromRow).toList();
+  }
+
+  @override
+  Future<void> linkCancellation({
+    required int cancellationId,
+    required int originalId,
+  }) async {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    await _local.setCancellationLink(
+      cancellationId: cancellationId,
+      originalId: originalId,
+      updatedAt: now,
+    );
+    // 원결제도 통계에서 빠져야 한다. 취소 건만 빼면 쓰지도 않은 돈이 남는다.
+    await _local.setCancelled(originalId, true, now);
+    AppLogger.i('취소 연결: #$cancellationId -> 원결제 #$originalId');
+    _notify();
+  }
+
+  @override
+  Future<void> unlinkCancellation(int cancellationId) async {
+    final Transaction? cancellation = await findById(cancellationId);
+    final int? originalId = cancellation?.cancelsTransactionId;
+    if (originalId == null) return;
+
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    await _local.setCancellationLink(
+      cancellationId: cancellationId,
+      originalId: null,
+      updatedAt: now,
+    );
+    // 원결제를 통계로 되돌린다. 취소 건 자체는 취소로 남는다.
+    await _local.setCancelled(originalId, false, now);
+    AppLogger.i('취소 연결 해제: #$cancellationId (원결제 #$originalId 복원)');
     _notify();
   }
 

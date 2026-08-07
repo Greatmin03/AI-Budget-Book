@@ -32,6 +32,9 @@ class LegacySchema {
       '${DbSchema.tableTransactions}.${DbSchema.tBalanceAfter}',
       '${DbSchema.tableTransactions}.${DbSchema.tMergedSources}',
     ],
+    17: <String>[
+      '${DbSchema.tableTransactions}.${DbSchema.tCancelsTransactionId}',
+    ],
   };
 
   /// [version] 시점의 스키마를 [db] 에 만든다.

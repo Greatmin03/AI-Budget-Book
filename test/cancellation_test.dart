@@ -181,7 +181,10 @@ void main() {
       expect(await stats().totalInRange(august), 30000);
     });
 
-    test('다른 브랜드의 결제를 건드리지 않는다', () async {
+    test('취소가 가맹점을 알려 주면 그것으로 좁힌다', () async {
+      // 은행 취소 알림에는 가맹점이 없지만, 알려 주는 앱도 있다.
+      // 이름을 알고 있는데 맞는 후보가 없다면 잇지 않는다 — 다른 가게의
+      // 같은 금액 결제를 지우는 것보다 그냥 두는 편이 낫다.
       await record(payment('스타벅스', 30000, minute: 30));
       await record(payment('메가커피', 30000, cancel: true, minute: 40));
 
@@ -197,13 +200,55 @@ void main() {
       expect(await stats().totalInRange(august), 30000);
     });
 
-    test('같은 가게에 결제가 둘이면 하나만 지운다', () async {
+    test('후보가 여럿이면 자동으로 잇지 않는다', () async {
       await record(payment('스타벅스', 30000, minute: 10));
       await record(payment('스타벅스', 30000, minute: 20));
       await record(payment('스타벅스', 30000, cancel: true, minute: 30));
 
-      // 두 번 결제하고 한 번 취소했다. 한 번은 남아야 한다.
+      // 어느 결제를 취소한 것인지 알 수 없다. 아무거나 지우면 엉뚱한 결제가
+      // 통계에서 사라진다. 사용자가 고를 때까지 그대로 둔다.
+      expect(await stats().totalInRange(august), 60000);
+
+      final List<Transaction> unmatched =
+          await transactions.findUnmatchedCancellations();
+      expect(unmatched, hasLength(1));
+      expect(unmatched.single.amount, -30000);
+    });
+
+    test('사용자가 고르면 그때 이어진다', () async {
+      await record(payment('스타벅스', 30000, minute: 10));
+      await record(payment('스타벅스', 30000, minute: 20));
+      await record(payment('스타벅스', 30000, cancel: true, minute: 30));
+
+      final Transaction cancellation =
+          (await transactions.findUnmatchedCancellations()).single;
+      final List<Transaction> candidates =
+          await transactions.findCancellationCandidates(cancellation);
+      expect(candidates, hasLength(2));
+
+      await transactions.linkCancellation(
+        cancellationId: cancellation.id!,
+        originalId: candidates.first.id!,
+      );
+
       expect(await stats().totalInRange(august), 30000);
+      expect(await transactions.findUnmatchedCancellations(), isEmpty);
+    });
+
+    test('연결을 해제하면 원결제가 통계로 돌아온다', () async {
+      await record(payment('스타벅스', 30000, minute: 30));
+      await record(payment('스타벅스', 30000, cancel: true, minute: 40));
+      expect(await stats().totalInRange(august), 0);
+
+      final List<Transaction> all = await transactions.findByRange(august);
+      final Transaction cancellation =
+          all.firstWhere((Transaction t) => t.amount < 0);
+      expect(cancellation.cancelsTransactionId, isNotNull);
+
+      await transactions.unlinkCancellation(cancellation.id!);
+
+      expect(await stats().totalInRange(august), 30000);
+      expect(await transactions.findUnmatchedCancellations(), hasLength(1));
     });
 
     test('원결제가 없으면 아무것도 하지 않는다', () async {

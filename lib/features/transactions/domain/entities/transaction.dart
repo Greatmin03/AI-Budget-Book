@@ -134,6 +134,7 @@ class Transaction {
     this.accountNumber,
     this.balanceAfter,
     this.mergedSources = const <String>[],
+    this.cancelsTransactionId,
     this.assetKind,
     this.aiStatus = AiStatus.none,
     this.aiProcessedAt,
@@ -218,6 +219,17 @@ class Transaction {
 
   /// 이 거래 직후의 계좌 잔액(은행이 알려 준 실제 값).
   final int? balanceAfter;
+
+  /// 이 취소가 되돌린 원결제. null 이면 아직 짝을 못 찾았다.
+  ///
+  /// 취소 알림에는 가맹점 이름이 없으므로 브랜드로 맞추지 않는다.
+  final int? cancelsTransactionId;
+
+  /// 취소인데 원결제를 찾지 못한 상태.
+  ///
+  /// 사용자가 나중에 직접 연결해야 한다. 그때까지 원결제는 통계에 남는다.
+  bool get isUnmatchedCancellation =>
+      isCancelled && amount < 0 && cancelsTransactionId == null;
 
   /// 이 거래를 만든 알림들의 패키지 이름.
   ///
@@ -348,6 +360,7 @@ class Transaction {
     Object? accountNumber = _unset,
     Object? balanceAfter = _unset,
     List<String>? mergedSources,
+    Object? cancelsTransactionId = _unset,
     Object? assetKind = _unset,
     AiStatus? aiStatus,
     Object? aiProcessedAt = _unset,
@@ -396,6 +409,9 @@ class Transaction {
           ? this.balanceAfter
           : balanceAfter as int?,
       mergedSources: mergedSources ?? this.mergedSources,
+      cancelsTransactionId: identical(cancelsTransactionId, _unset)
+          ? this.cancelsTransactionId
+          : cancelsTransactionId as int?,
       assetKind:
           identical(assetKind, _unset) ? this.assetKind : assetKind as String?,
       aiStatus: aiStatus ?? this.aiStatus,

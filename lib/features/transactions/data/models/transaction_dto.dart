@@ -51,6 +51,7 @@ class TransactionDto {
       accountNumber: row[DbSchema.tAccountNumber] as String?,
       balanceAfter: row[DbSchema.tBalanceAfter] as int?,
       mergedSources: _splitSources(row[DbSchema.tMergedSources] as String?),
+      cancelsTransactionId: row[DbSchema.tCancelsTransactionId] as int?,
       assetKind: row[DbSchema.tAssetKind] as String?,
       aiStatus: AiStatus.fromCode(row[DbSchema.tAiStatus] as String?),
       aiProcessedAt: _toDate(row[DbSchema.tAiProcessedAt]),
@@ -96,6 +97,7 @@ class TransactionDto {
       DbSchema.tBalanceAfter: tx.balanceAfter,
       DbSchema.tMergedSources:
           tx.mergedSources.isEmpty ? null : tx.mergedSources.join(','),
+      DbSchema.tCancelsTransactionId: tx.cancelsTransactionId,
       DbSchema.tAssetKind: tx.assetKind,
       DbSchema.tAiStatus: tx.aiStatus.code,
       DbSchema.tAiProcessedAt: tx.aiProcessedAt?.millisecondsSinceEpoch,

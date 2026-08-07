@@ -29,6 +29,8 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
+  /// v16 -> v17: `transactions.cancels_transaction_id` 추가
+  ///            (취소가 어느 결제를 되돌린 것인지. 브랜드로 맞추지 않는다)
   /// v15 -> v16: `transactions.account_number`, `balance_after`,
   ///            `merged_sources` 추가 (여러 앱 알림 병합)
   /// v14 -> v15: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정
@@ -36,7 +38,7 @@ class DbSchema {
   ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
   /// v12 -> v13: `unmapped_place_categories` 추가
   ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
-  static const int databaseVersion = 16;
+  static const int databaseVersion = 17;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -171,6 +173,21 @@ class DbSchema {
   ///
   /// 앱이 계산한 잔액과 대조할 수 있는 유일한 근거다.
   static const String tBalanceAfter = 'balance_after';
+
+  /// 이 취소가 되돌린 **원결제**.
+  ///
+  /// 취소 알림에는 가맹점 이름이 없다.
+  ///
+  /// ```
+  /// [결제] ... 카카오T비  체크카드출금 3,400 잔액1,268,162
+  /// [취소] ... 출금취소 3,400 잔액1,271,562
+  ///            ^ 무엇을 취소했는지 알려 주지 않는다
+  /// ```
+  ///
+  /// 그래서 **브랜드로 맞추지 않는다.** 카드·금액·시각으로 찾고, 확실할
+  /// 때만 잇는다. null 이면 아직 짝을 못 찾은 것이고, 사용자가 나중에
+  /// 연결할 수 있다.
+  static const String tCancelsTransactionId = 'cancels_transaction_id';
 
   /// 이 거래를 만든 알림들의 패키지 이름(쉼표 구분).
   ///
@@ -526,6 +543,8 @@ class DbSchema {
       $tAccountNumber TEXT,
       $tBalanceAfter INTEGER,
       $tMergedSources TEXT,
+      $tCancelsTransactionId INTEGER
+        REFERENCES $tableTransactions($tId) ON DELETE SET NULL,
       $tCreatedAt INTEGER NOT NULL,
       $tUpdatedAt INTEGER NOT NULL
     )
@@ -991,6 +1010,55 @@ class DbSchema {
         )
         FROM $tableTransactions c
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
+      )
+      ''',
+    ],
+    17: <String>[
+      'ALTER TABLE $tableTransactions '
+          'ADD COLUMN $tCancelsTransactionId INTEGER '
+          'REFERENCES $tableTransactions($tId) ON DELETE SET NULL',
+      'CREATE INDEX IF NOT EXISTS idx_tx_cancels '
+          'ON $tableTransactions($tCancelsTransactionId)',
+
+      // 이미 쌓인 취소를 스펙대로 다시 잇는다.
+      //
+      // 그전에는 **브랜드**로 맞췄다. 그런데 취소 알림에는 가맹점 이름이
+      // 없어서(`출금취소 3,400`) 영영 못 만났고, 원결제가 통계에 그대로
+      // 남아 쓰지도 않은 돈이 잡혔다.
+      //
+      // 같은 카드 + 같은 금액 + 취소 직전 + **후보가 하나뿐**일 때만 잇는다.
+      // 여럿이면 사용자가 고르게 두는 편이 낫다 — 틀리게 이으면 엉뚱한
+      // 결제가 통계에서 사라진다.
+      '''
+      UPDATE $tableTransactions SET $tCancelsTransactionId = (
+        SELECT o.$tId FROM $tableTransactions o
+        WHERE o.$tAmount = -$tableTransactions.$tAmount
+          AND o.$tId != $tableTransactions.$tId
+          AND COALESCE(o.$tCardName,'') =
+              COALESCE($tableTransactions.$tCardName,'')
+          AND o.$tPaymentDatetime <= $tableTransactions.$tPaymentDatetime
+          AND o.$tPaymentDatetime >=
+              $tableTransactions.$tPaymentDatetime - 604800000
+      )
+      WHERE $tIsCancelled = 1 AND $tAmount < 0
+        AND (
+          SELECT COUNT(*) FROM $tableTransactions o
+          WHERE o.$tAmount = -$tableTransactions.$tAmount
+            AND o.$tId != $tableTransactions.$tId
+            AND COALESCE(o.$tCardName,'') =
+                COALESCE($tableTransactions.$tCardName,'')
+            AND o.$tPaymentDatetime <= $tableTransactions.$tPaymentDatetime
+            AND o.$tPaymentDatetime >=
+                $tableTransactions.$tPaymentDatetime - 604800000
+        ) = 1
+      ''',
+
+      // 이어진 원결제를 통계에서 뺀다.
+      '''
+      UPDATE $tableTransactions SET $tIsCancelled = 1
+      WHERE $tId IN (
+        SELECT $tCancelsTransactionId FROM $tableTransactions
+        WHERE $tCancelsTransactionId IS NOT NULL
       )
       ''',
     ],

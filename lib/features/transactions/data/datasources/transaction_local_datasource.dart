@@ -314,30 +314,78 @@ class TransactionLocalDataSource {
     );
   }
 
-  /// 취소가 되돌리는 원결제 후보. 가장 가까운 것부터.
-  Future<Map<String, Object?>?> findCancellationTarget({
-    required String brand,
+  /// 이 취소가 되돌렸을 법한 원결제 **후보 전부**. 가까운 것부터.
+  ///
+  /// **브랜드로 맞추지 않는다.** 취소 알림에는 가맹점 이름이 아예 없다
+  /// (`출금취소 3,400`). 브랜드를 조건에 넣으면 영영 못 만난다.
+  ///
+  /// 대신 같은 카드 + 같은 금액 + 취소 이전으로 좁힌다.
+  Future<List<Map<String, Object?>>> findCancellationCandidates({
+    required String? cardName,
     required int amount,
     required int cancelledAtMillis,
     required int windowMillis,
-  }) async {
-    final List<Map<String, Object?>> rows = await _db.rawQuery(
+    required int excludeId,
+  }) {
+    return _db.rawQuery(
       '$_select '
-      'WHERE t.${DbSchema.tBrand} = ? '
-      '  AND t.${DbSchema.tAmount} = ? '
+      'WHERE t.${DbSchema.tAmount} = ? '
+      '  AND t.${DbSchema.tId} != ? '
       '  AND t.${DbSchema.tIsCancelled} = 0 '
+      "  AND COALESCE(t.${DbSchema.tCardName}, '') = ? "
       '  AND t.${DbSchema.tPaymentDatetime} <= ? '
       '  AND t.${DbSchema.tPaymentDatetime} >= ? '
-      'ORDER BY t.${DbSchema.tPaymentDatetime} DESC '
-      'LIMIT 1',
+      'ORDER BY t.${DbSchema.tPaymentDatetime} DESC',
       <Object?>[
-        brand,
         amount,
+        excludeId,
+        cardName ?? '',
         cancelledAtMillis,
         cancelledAtMillis - windowMillis,
       ],
     );
-    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// 원결제를 아직 찾지 못한 취소들(최신순).
+  Future<List<Map<String, Object?>>> findUnmatchedCancellations(int limit) {
+    return _db.rawQuery(
+      '$_select '
+      'WHERE t.${DbSchema.tIsCancelled} = 1 '
+      '  AND t.${DbSchema.tAmount} < 0 '
+      '  AND t.${DbSchema.tCancelsTransactionId} IS NULL '
+      'ORDER BY t.${DbSchema.tPaymentDatetime} DESC '
+      'LIMIT ?',
+      <Object?>[limit],
+    );
+  }
+
+  /// 취소와 원결제를 잇는다(또는 [originalId] 가 null 이면 끊는다).
+  Future<int> setCancellationLink({
+    required int cancellationId,
+    required int? originalId,
+    required int updatedAt,
+  }) {
+    return _db.update(
+      _t,
+      <String, Object?>{
+        DbSchema.tCancelsTransactionId: originalId,
+        DbSchema.tUpdatedAt: updatedAt,
+      },
+      where: '${DbSchema.tId} = ?',
+      whereArgs: <Object?>[cancellationId],
+    );
+  }
+
+  Future<int> setCancelled(int id, bool cancelled, int updatedAt) {
+    return _db.update(
+      _t,
+      <String, Object?>{
+        DbSchema.tIsCancelled: cancelled ? 1 : 0,
+        DbSchema.tUpdatedAt: updatedAt,
+      },
+      where: '${DbSchema.tId} = ?',
+      whereArgs: <Object?>[id],
+    );
   }
 
   Future<int> markCancelled(int id, int updatedAt) {

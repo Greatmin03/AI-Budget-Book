@@ -59,7 +59,7 @@
 | 이름 | budget_book |
 | 플랫폼 | **Android 전용** (iOS는 알림 접근 API가 없어 원리적으로 불가) |
 | 프레임워크 | Flutter 3.44.8 / Dart 3.12.2 (`sdk: >=3.22.0`) |
-| 로컬 DB | sqflite (SQLite) — **스키마 v14** |
+| 로컬 DB | sqflite (SQLite) — **스키마 v17** |
 | 네이티브 | Kotlin · NotificationListenerService · MethodChannel/EventChannel |
 | 로컬 LLM | Ollama (기본 모델 `gemma3:4b`) — **선택 기능, 기본 꺼짐** |
 | 외부 API | 카카오 로컬 API — **선택 기능, 사용자 본인 키** |
@@ -231,7 +231,7 @@ settlements  statistics  transactions
 
 **단일 소스는 `lib/core/database/db_schema.dart` 다.** 테이블·컬럼 문자열을 다른 곳에 직접 쓰지 말고 반드시 이 상수를 참조한다.
 
-현재 `databaseVersion = 14`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
+현재 `databaseVersion = 17`. 마이그레이션은 `DbSchema.migrations` (`Map<int, List<String>>`) 에 버전별로 모아 두고, `app_database.dart` 의 `onUpgrade` 가 `from < key` 인 항목을 순서대로 실행한다.
 
 ### 테이블 14개
 
@@ -372,6 +372,23 @@ settlements  statistics  transactions
 - **데이터 마이그레이션은 없다.** 옛 기록에는 이름만 있어 채울 수 없다.
   `to_account_id` 가 null 이면 나간 쪽만 반영된다(추적하지 않는 곳으로 나간
   것과 같다). 필요하면 거래를 열어 받는 계좌를 다시 고르면 된다.
+
+#### v15~v17 — 알림 병합과 취소 매칭
+- **v15**: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정.
+  이체로 판정되면 상대방 이름 보호 정책이 걸려 카카오도 AI 도 돌지 않는다.
+- **v16**: `transactions.account_number`, `balance_after`, `merged_sources`.
+  같은 결제를 토스와 은행이 각각 알린다. **거래는 하나만 남기고 정보만 합친다.**
+  토스는 브랜드를, 은행은 계좌와 잔액을 담당한다(`NotificationSourceTrait`).
+- **v17**: `transactions.cancels_transaction_id`.
+  **취소 알림에는 가맹점 이름이 없다.**
+  ```
+  [결제] ... 카카오T비  체크카드출금 3,400 잔액1,268,162
+  [취소] ... 출금취소 3,400 잔액1,271,562
+  ```
+  그래서 브랜드로 맞추지 않는다. 같은 카드 + 같은 금액 + 취소 이전으로 좁히고
+  **후보가 하나뿐일 때만** 자동으로 잇는다. 여럿이면 사용자가 고른다 —
+  틀리게 이으면 엉뚱한 결제가 통계에서 조용히 사라진다.
+  오래된 취소(7일 초과)는 자동으로 잇지 않는다.
 
 > **삭제된 컬럼은 없다.** SQLite 의 `DROP COLUMN` 지원이 제한적이고, 컬럼을 지우면 구버전 DB 에서 올라온 사용자의 데이터가 사라질 수 있다. 쓰지 않게 된 값은 남겨 두고 읽지 않는다.
 

@@ -38,18 +38,26 @@ abstract interface class TransactionRepository {
 
   Future<void> delete(int id);
 
-  /// 이 취소가 되돌리는 원결제를 찾는다. 없으면 null.
+  /// 이 취소가 되돌렸을 법한 원결제 **후보 전부**.
   ///
-  /// 같은 브랜드 + 같은 금액 + 취소보다 앞선 결제 중 **가장 가까운 것** 하나.
-  /// 아직 취소 표시되지 않은 것만 본다(한 결제를 두 번 취소할 수는 없다).
-  Future<Transaction?> findCancellationTarget({
-    required String brand,
-    required int amount,
-    required DateTime cancelledAt,
+  /// **브랜드로 맞추지 않는다.** 취소 알림에는 가맹점 이름이 없다.
+  /// 같은 카드 + 같은 금액 + 취소 이전으로 좁힌다.
+  Future<List<Transaction>> findCancellationCandidates(
+    Transaction cancellation, {
+    Duration window,
   });
 
-  /// 취소 표시를 단다. 금액과 원문은 건드리지 않는다.
-  Future<void> markCancelled(int id);
+  /// 원결제를 아직 찾지 못한 취소들.
+  Future<List<Transaction>> findUnmatchedCancellations({int limit = 50});
+
+  /// 취소와 원결제를 잇는다. 원결제도 통계에서 빠진다.
+  Future<void> linkCancellation({
+    required int cancellationId,
+    required int originalId,
+  });
+
+  /// 연결을 끊는다. 원결제가 통계로 돌아온다.
+  Future<void> unlinkCancellation(int cancellationId);
 
   /// 브랜드 재정규화 대상: (원본 거래명, 현재 브랜드) 조합과 건수.
   ///
