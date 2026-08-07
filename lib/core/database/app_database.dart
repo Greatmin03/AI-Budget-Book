@@ -64,16 +64,16 @@ class AppDatabase {
         }
       },
       onOpen: (Database db) async {
-        // 시드가 비어 있으면(수동 삭제 등) 다시 채운다.
-        final int count = Sqflite.firstIntValue(
-              await db.rawQuery(
-                'SELECT COUNT(*) FROM ${DbSchema.tableBrandRules}',
-              ),
-            ) ??
-            0;
-        if (count == 0) {
-          await _seedBrandRules(db);
-        }
+        // **열 때마다 주입한다.**
+        //
+        // 예전에는 테이블이 비어 있을 때만 넣었다. 그러면 앱을 업데이트해도
+        // 사전에 새로 넣은 브랜드가 기존 사용자에게 영영 도달하지 않는다.
+        // 실제로 `지에스25` alias 를 추가했는데도 기기에서는 `지에스25` 가
+        // GS25 로 묶이지 않았다.
+        //
+        // `ConflictAlgorithm.ignore` 이므로 이미 있는 pattern 은 건드리지
+        // 않는다 — 사용자가 고친 규칙은 그대로 남는다.
+        await _seedBrandRules(db);
       },
     );
 
@@ -81,6 +81,8 @@ class AppDatabase {
   }
 
   /// 브랜드 규칙 시드 주입. 이미 있는 pattern 은 건너뛴다(사용자 수정 보호).
+  ///
+  /// 앱을 열 때마다 실행된다. 새 브랜드만 늘어나고 기존 규칙은 바뀌지 않는다.
   Future<void> _seedBrandRules(Database db) async {
     final Batch batch = db.batch();
     for (final Map<String, Object?> row in BrandSeed.rows) {
@@ -91,7 +93,7 @@ class AppDatabase {
       );
     }
     await batch.commit(noResult: true);
-    AppLogger.i('브랜드 시드 ${BrandSeed.rows.length}건 주입 완료 '
+    AppLogger.d('브랜드 시드 확인: ${BrandSeed.rows.length}건 '
         '(대표 브랜드 ${BrandSeed.definitions.length}개)');
   }
 

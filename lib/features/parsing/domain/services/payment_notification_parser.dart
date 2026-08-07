@@ -405,17 +405,27 @@ class PaymentNotificationParser {
       if (text.contains(keyword)) return PaymentMethodKind.remittance;
     }
 
-    // 2) 계좌 이체/출금.
+    // 2) 체크/직불카드. **이체 판별보다 먼저 본다.**
+    //
+    // 은행이 보내는 `... 퀴즈노스춘천 체크카드출금 9,630` 은 `출금` 이 들어
+    // 있어서 이체로 오인된다. 이체로 판정되면 상대방 이름 보호 정책이
+    // 걸려 카카오 조회도 AI 분류도 전부 막힌다 — 가맹점 결제인데 영영
+    // 분류되지 않는다.
+    for (final String keyword in _debitCardKeywords) {
+      if (text.contains(keyword)) return PaymentMethodKind.card;
+    }
+
+    // 3) 계좌 이체/출금.
     for (final String keyword in _transferKeywords) {
       if (text.contains(keyword)) return PaymentMethodKind.accountTransfer;
     }
 
-    // 3) 간편결제(가맹점 결제).
+    // 4) 간편결제(가맹점 결제).
     if (issuer != null && _easyPayIssuers.contains(issuer)) {
       return PaymentMethodKind.easyPay;
     }
 
-    // 4) 카드 승인.
+    // 5) 카드 승인.
     if (text.contains('카드') || (issuer != null && issuer.contains('카드'))) {
       return PaymentMethodKind.card;
     }
@@ -435,6 +445,16 @@ class PaymentNotificationParser {
     '보냈',
     '더치페이',
     '정산',
+  ];
+
+  /// 체크/직불카드 결제를 뜻하는 표현.
+  ///
+  /// 은행 계좌에서 바로 빠져나가므로 알림 문구에 `출금` 이 함께 오지만,
+  /// **상대방이 아니라 가맹점**에 낸 돈이다.
+  static const List<String> _debitCardKeywords = <String>[
+    '체크카드',
+    '직불카드',
+    '카드출금',
   ];
 
   /// 계좌 이체/출금을 뜻하는 표현.

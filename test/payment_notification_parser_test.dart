@@ -1,6 +1,7 @@
 import 'package:budget_book/features/notifications/domain/entities/raw_notification.dart';
 import 'package:budget_book/features/parsing/domain/entities/parsed_payment.dart';
 import 'package:budget_book/features/parsing/domain/services/payment_notification_parser.dart';
+import 'package:budget_book/features/merchants/domain/services/brand_learning_policy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -333,6 +334,73 @@ void main() {
 
       expect(p.isMerchantUnknown, isTrue);
       expect(p.amount, 7000);
+    });
+  });
+
+  group('체크카드 출금은 이체가 아니다', () {
+    /// 실제 기기에서 온 알림. `출금` 이 들어 있어 이체로 오인됐고,
+    /// 그 결과 상대방 이름 보호 정책이 걸려 카카오 조회도 AI 분류도
+    /// 전부 막혀서 영영 미분류로 남았다.
+    ParsedPayment parseBankCard(String merchant) {
+      final ParseOutcome outcome = const PaymentNotificationParser().parse(
+        RawNotification(
+          packageName: 'com.kbstar.kbbank',
+          title: 'KB국민은행',
+          text: '출금 9,630원\n박*민님 08/06 13:06 942902-**-***245 '
+              '$merchant 체크카드출금 9,630 잔액1,384,495',
+          postedAt: DateTime(2026, 8, 6, 13, 6),
+        ),
+      );
+      expect(outcome, isA<ParseSuccess>());
+      return (outcome as ParseSuccess).payment;
+    }
+
+    test('카드 결제로 판정된다', () {
+      expect(parseBankCard('퀴즈노스춘천').method, PaymentMethodKind.card);
+    });
+
+    test('가맹점 학습이 막히지 않는다', () {
+      final ParsedPayment payment = parseBankCard('퀴즈노스춘천');
+      const BrandLearningPolicy policy = BrandLearningPolicy();
+
+      final BrandLearningDecision decision = policy.evaluate(
+        method: payment.method,
+        brand: payment.merchantRaw,
+        merchantRaw: payment.merchantRaw,
+      );
+
+      // 막히면 카카오 조회도 AI 대기열도 못 간다.
+      expect(decision.stance, BrandLearningStance.allowed);
+    });
+
+    test('직불카드도 마찬가지다', () {
+      final ParseOutcome outcome = const PaymentNotificationParser().parse(
+        RawNotification(
+          packageName: 'com.kbstar.kbbank',
+          title: 'KB국민은행',
+          text: '출금 5,000원 홍*동님 직불카드출금 스타벅스 잔액100,000',
+          postedAt: DateTime(2026, 8, 6, 13, 6),
+        ),
+      );
+      expect(outcome, isA<ParseSuccess>());
+      expect((outcome as ParseSuccess).payment.method, PaymentMethodKind.card);
+    });
+
+    test('진짜 이체는 그대로 이체다', () {
+      final ParseOutcome outcome = const PaymentNotificationParser().parse(
+        RawNotification(
+          packageName: 'com.kbstar.kbbank',
+          title: 'KB국민은행',
+          text: '출금 50,000원 홍*동님 08/06 13:06 김철수 이체 잔액100,000',
+          postedAt: DateTime(2026, 8, 6, 13, 6),
+        ),
+      );
+      expect(outcome, isA<ParseSuccess>());
+      // 상대방 이름이 브랜드로 학습되면 안 된다.
+      expect(
+        (outcome as ParseSuccess).payment.method,
+        PaymentMethodKind.accountTransfer,
+      );
     });
   });
 }

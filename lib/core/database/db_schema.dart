@@ -29,11 +29,12 @@ class DbSchema {
   ///            (카드 이름 -> 계좌. 알림 거래를 잔액에 자동 반영하기 위해)
   /// v10 -> v11: `deposits.transaction_id` 추가 (입금 -> 수입 거래 연결)
   /// v11 -> v12: 취소된 원결제에도 `is_cancelled` 표시 (통계에서 함께 제외)
+  /// v14 -> v15: 체크카드 결제가 계좌이체로 저장돼 있던 것을 카드로 교정
   /// v13 -> v14: `asset_transfers.to_account_id` 추가
   ///            (자산 이동이 계좌 잔액에 반영되도록. 이름이 아니라 id 로 잇는다)
   /// v12 -> v13: `unmapped_place_categories` 추가
   ///            (매핑하지 못한 카카오 업종 수집. 매핑표를 늘릴 근거)
-  static const int databaseVersion = 14;
+  static const int databaseVersion = 15;
 
   // ---------------------------------------------------------------- merchants
   /// 학습된 개별 가맹점. "한 번 학습한 가맹점은 다시 AI 를 호출하지 않는다" 의 캐시.
@@ -971,6 +972,25 @@ class DbSchema {
         FROM $tableTransactions c
         WHERE c.$tIsCancelled = 1 AND c.$tAmount < 0
       )
+      ''',
+    ],
+    15: <String>[
+      // 체크카드 결제를 이체로 저장하고 있었다. 은행 알림에 `출금` 이
+      // 들어 있어서 파서가 이체로 판정했기 때문이다.
+      //
+      // 이체로 판정되면 상대방 이름 보호 정책이 걸려 **카카오 조회도 AI 분류도
+      // 전부 막힌다.** 가맹점 결제인데 영영 `미분류` 로 남는다.
+      //
+      // 원문에 체크/직불카드가 적힌 거래만 고친다. 사용자가 직접 고른
+      // 결제수단(직접 입력)은 건드리지 않는다.
+      '''
+      UPDATE $tableTransactions SET $tPaymentMethod = 'card'
+      WHERE $tPaymentMethod = 'account_transfer'
+        AND $tEntrySource = 'notification'
+        AND (
+          $tRawNotification LIKE '%체크카드%'
+          OR $tRawNotification LIKE '%직불카드%'
+        )
       ''',
     ],
     14: <String>[

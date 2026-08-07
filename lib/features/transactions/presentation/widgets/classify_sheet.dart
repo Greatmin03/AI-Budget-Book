@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_categories.dart';
+import '../../../../core/di/injector.dart';
+import '../../../../core/logging/app_logger.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../classification/domain/entities/brand_metadata.dart';
 import '../../../merchants/domain/services/brand_learning_policy.dart';
 import '../../domain/entities/transaction.dart';
 
@@ -59,6 +62,11 @@ class _ClassifySheetState extends State<ClassifySheet> {
   /// 규칙 기반 추천이 있었는지(있으면 미리 선택해 둔다).
   late final bool _hadSuggestion;
 
+  bool _isLooking = false;
+
+  /// 업종 조회 결과 한 줄. 무엇을 근거로 채웠는지 보여 준다.
+  String? _lookupMessage;
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +96,48 @@ class _ClassifySheetState extends State<ClassifySheet> {
     _brandController.dispose();
     _tagController.dispose();
     super.dispose();
+  }
+
+  /// 카카오 장소 API 로 업종을 **다시** 조회한다.
+  ///
+  /// 수집 시점에만 조회하면, 그때 실패한 거래는 영영 미분류로 남는다.
+  /// (이체로 잘못 판정돼 조회 자체가 막혔던 거래가 실제로 그랬다)
+  ///
+  /// 결과는 **바로 저장하지 않고 화면에만 채운다.** 자동 분류가 틀릴 수도
+  /// 있으므로 사용자가 보고 확정한다.
+  Future<void> _lookupIndustry() async {
+    final String brand = _brandController.text.trim().isEmpty
+        ? widget.transaction.brand
+        : _brandController.text.trim();
+
+    setState(() {
+      _isLooking = true;
+      _lookupMessage = null;
+    });
+
+    try {
+      final BrandMetadata? found =
+          await Injector.instance.lookupBrandIndustry(brand);
+      if (!mounted) return;
+
+      if (found == null || !found.isUsable) {
+        setState(() => _lookupMessage = '업종을 찾지 못했습니다. 직접 골라 주세요.');
+        return;
+      }
+
+      setState(() {
+        _category = found.category!;
+        _subcategory = found.subcategory!;
+        _lookupMessage = '${found.industry ?? '업종'} → '
+            '${found.category}/${found.subcategory}';
+      });
+    } on Object catch (e, stack) {
+      AppLogger.e('업종 재조회 실패', e, stack);
+      if (!mounted) return;
+      setState(() => _lookupMessage = '조회하지 못했습니다. ($e)');
+    } finally {
+      if (mounted) setState(() => _isLooking = false);
+    }
   }
 
   bool get _canSubmit =>
@@ -231,6 +281,36 @@ class _ClassifySheetState extends State<ClassifySheet> {
               ),
               const SizedBox(height: 18),
             ],
+
+            // ------------------------------------------------- 업종 재조회
+            //
+            // 수집 시점에만 조회하면 그때 실패한 거래는 영영 미분류로 남는다.
+            // 여기서 다시 부를 수 있어야 한다.
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isLooking ? null : _lookupIndustry,
+                    icon: _isLooking
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.travel_explore_outlined, size: 18),
+                    label: const Text('업종 다시 조회'),
+                  ),
+                ),
+              ],
+            ),
+            if (_lookupMessage != null) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                _lookupMessage!,
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: 16),
 
             // ----------------------------------------------------- 카테고리
             Text(
