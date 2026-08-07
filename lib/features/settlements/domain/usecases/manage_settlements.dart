@@ -140,15 +140,57 @@ class LinkDepositToTransaction {
     required Deposit deposit,
     required Transaction transaction,
   }) async {
-    final int? depositId = deposit.id;
-
-    final Settlement settlement = await _settlements.add(
-      transaction: transaction,
-      counterparty: deposit.counterparty,
-      amount: deposit.amount,
-      settledAt: deposit.depositedAt,
-      depositId: depositId,
+    final DepositAllocation result = await linkMany(
+      deposit: deposit,
+      transactions: <Transaction>[transaction],
     );
+    return result.settlements.single;
+  }
+
+  /// **한 입금을 여러 거래에 나눠 붙인다.**
+  ///
+  /// 친구가 한 번에 보낸 돈이 결제 두 건을 덮는 경우가 흔하다. 하나만 고를 수
+  /// 있으면 나머지는 영영 미정산으로 남아 실제 부담이 부풀어 보인다.
+  ///
+  /// 배분은 **고른 순서대로 남은 금액만큼** 채운다. 거래마다 금액을 손으로
+  /// 넣게 하면 합계가 입금액과 어긋나기 쉽고, 어긋난 것을 사용자가 알아채기도
+  /// 어렵다. 순서대로 채우면 합계가 절대 입금액을 넘지 않는다.
+  Future<DepositAllocation> linkMany({
+    required Deposit deposit,
+    required List<Transaction> transactions,
+  }) async {
+    if (transactions.isEmpty) {
+      throw ArgumentError('연결할 거래를 최소 하나 골라야 합니다.');
+    }
+
+    final int? depositId = deposit.id;
+    final List<Settlement> created = <Settlement>[];
+    int remaining = deposit.amount;
+
+    for (final Transaction transaction in transactions) {
+      if (remaining <= 0) break;
+
+      // 이미 정산된 만큼은 빼고 남은 부담까지만 채운다.
+      // 넘겨서 붙이면 그 거래의 부담이 음수가 된다.
+      final int room = transaction.unsettledAmount;
+      final int amount = room < remaining ? room : remaining;
+      if (amount <= 0) continue;
+
+      created.add(
+        await _settlements.add(
+          transaction: transaction,
+          counterparty: deposit.counterparty,
+          amount: amount,
+          settledAt: deposit.depositedAt,
+          depositId: depositId,
+        ),
+      );
+      remaining -= amount;
+    }
+
+    if (created.isEmpty) {
+      throw StateError('고른 거래에 남은 정산 금액이 없습니다.');
+    }
 
     if (depositId != null) {
       await _deposits.updateStatus(depositId, DepositStatus.linked);
@@ -156,8 +198,10 @@ class LinkDepositToTransaction {
     await _markAsSettlementIncome(deposit);
 
     AppLogger.i('입금 연결: ${deposit.counterparty} +${deposit.amount}원 '
-        '-> ${transaction.displayName}');
-    return settlement;
+        '-> 거래 ${created.length}건'
+        '${remaining > 0 ? ' (남은 $remaining원은 배분되지 않음)' : ''}');
+
+    return DepositAllocation(settlements: created, unallocated: remaining);
   }
 
   /// 이 입금으로 만들어진 수입 거래를 `정산` 분류로 옮긴다.
@@ -195,4 +239,26 @@ class LinkDepositToTransaction {
     if (id == null) return;
     await _deposits.updateStatus(id, DepositStatus.ignored);
   }
+}
+
+/// 입금 하나를 거래들에 나눠 붙인 결과.
+class DepositAllocation {
+  const DepositAllocation({
+    required this.settlements,
+    required this.unallocated,
+  });
+
+  final List<Settlement> settlements;
+
+  /// 고른 거래를 다 채우고도 남은 금액.
+  ///
+  /// 0이 아니면 그 돈은 정산이 아니라 다른 성격일 수 있다. 조용히 마지막
+  /// 거래에 몰아붙이지 않고 **남았다는 사실을 알린다** — 부담을 실제보다
+  /// 적게 보이게 만드는 쪽이 더 나쁘다.
+  final int unallocated;
+
+  int get total =>
+      settlements.fold<int>(0, (int sum, Settlement s) => sum + s.amount);
+
+  bool get isFullyAllocated => unallocated == 0;
 }

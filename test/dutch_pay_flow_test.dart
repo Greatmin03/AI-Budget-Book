@@ -320,4 +320,149 @@ void main() {
       expect(after.hasSettlements, isTrue);
     });
   });
+
+  group('한 송금이 결제 여러 건을 덮는 경우', () {
+    /// 같은 날 쿠팡에서 두 번 결제하고, 친구가 한 번에 보냈다.
+    Future<List<Transaction>> twoPurchases() async {
+      final List<Transaction> created = <Transaction>[];
+      for (final (int i, int amount) in <int>[20000, 10000].indexed) {
+        final DateTime when = DateTime(2026, 8, 7, 10 + i);
+        created.add(
+          (await transactions.insert(
+            Transaction(
+              merchantRaw: '쿠팡',
+              brand: '쿠팡',
+              amount: amount,
+              category: '쇼핑',
+              subcategory: '기타',
+              method: PaymentMethodKind.card,
+              paymentDatetime: when,
+              rawNotification: 'test',
+              fingerprint: 'coupang|$amount|${when.microsecondsSinceEpoch}',
+              classificationSource: ClassificationSource.seed,
+            ),
+          ))!,
+        );
+      }
+      return created;
+    }
+
+    Future<Deposit> incoming(int amount) async {
+      await record(
+        RawNotification(
+          packageName: 'com.kbstar.kbbank',
+          title: 'KB국민은행',
+          text: '[KB]08/07 20:00 김철수 님이 $amount원을 입금했습니다. '
+              '잔액 1,000,000원',
+          postedAt: DateTime(2026, 8, 7, 20),
+        ),
+      );
+      return (await deposits.findPending()).firstWhere(
+        (Deposit d) => d.amount == amount,
+      );
+    }
+
+    test('두 건에 나눠 붙는다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      final Deposit deposit = await incoming(30000);
+
+      final DepositAllocation result = await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: purchases,
+      );
+
+      expect(result.settlements, hasLength(2));
+      expect(result.total, 30000);
+      expect(result.isFullyAllocated, isTrue);
+
+      for (final Transaction tx in purchases) {
+        final Transaction after = (await transactions.findById(tx.id!))!;
+        expect(after.netAmount, 0, reason: '전액 회수됐다');
+      }
+    });
+
+    test('위에서부터 남은 만큼만 채운다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      // 20,000 + 10,000 중 25,000원만 받았다.
+      final Deposit deposit = await incoming(25000);
+
+      final DepositAllocation result = await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: purchases,
+      );
+
+      expect(result.settlements[0].amount, 20000, reason: '첫 건을 다 채우고');
+      expect(result.settlements[1].amount, 5000, reason: '남은 만큼만');
+
+      final Transaction second =
+          (await transactions.findById(purchases[1].id!))!;
+      expect(second.netAmount, 5000, reason: '아직 5,000원이 남아 있다');
+    });
+
+    test('거래에 붙는 금액이 남은 부담을 넘지 않는다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      // 결제 합(30,000)보다 많이 받았다.
+      final Deposit deposit = await incoming(50000);
+
+      final DepositAllocation result = await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: purchases,
+      );
+
+      expect(result.total, 30000);
+      // 남은 20,000원은 조용히 어디에 몰아붙이지 않는다. 그러면 부담이
+      // 음수가 되고 통계가 틀어진다.
+      expect(result.unallocated, 20000);
+      for (final Transaction tx in purchases) {
+        expect((await transactions.findById(tx.id!))!.netAmount, 0);
+      }
+    });
+
+    test('통계는 전액 회수된 만큼만 뺀다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      final Deposit deposit = await incoming(25000);
+      await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: purchases,
+      );
+
+      final DateRange range = DateRange.month(DateTime(2026, 8, 7));
+      expect(await stats().totalInRange(range), 5000);
+    });
+
+    test('한 건만 골라도 그대로 동작한다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      final Deposit deposit = await incoming(20000);
+
+      final DepositAllocation result = await linkDeposit.linkMany(
+        deposit: deposit,
+        transactions: <Transaction>[purchases.first],
+      );
+
+      expect(result.settlements, hasLength(1));
+      expect(result.isFullyAllocated, isTrue);
+    });
+
+    test('남은 부담이 없는 거래만 고르면 막는다', () async {
+      final List<Transaction> purchases = await twoPurchases();
+      final Deposit first = await incoming(20000);
+      await linkDeposit.linkMany(
+        deposit: first,
+        transactions: <Transaction>[purchases.first],
+      );
+
+      final Transaction settled =
+          (await transactions.findById(purchases.first.id!))!;
+      final Deposit second = await incoming(5000);
+
+      // 이미 다 받은 거래에 또 붙이면 부담이 음수가 된다.
+      expect(
+        () => linkDeposit.linkMany(
+          deposit: second,
+          transactions: <Transaction>[settled],
+        ),
+        throwsStateError,
+      );
+    });
+  });
 }
